@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PyPanel Pro</title>
+    <style>
+        body { margin: 0; display: flex; flex-direction: column; height: 100vh; background: #2F3129; color: #eee; font-family: sans-serif; overflow: hidden; }
+        #toolbar { padding: 8px; background: #222; display: flex; gap: 8px; border-bottom: 1px solid #444; align-items: center; }
+        button { cursor: pointer; background: #4CAF50; border: none; color: white; padding: 6px 12px; border-radius: 4px; font-size: 13px; font-weight: bold; }
+        button:hover { background: #45a049; }
+        button.secondary { background: #555; }
+        button.close { background: #d32f2f; margin-left: auto; }
+        #editor-container { flex: 1; position: relative; }
+        #editor { position: absolute; top: 0; right: 0; bottom: 0; left: 0; font-size: 14px; }
+        #output { height: 150px; background: #111; border-top: 1px solid #444; padding: 10px; overflow-y: auto; white-space: pre-wrap; font-family: monospace; font-size: 13px; color: #ddd; }
+        #status { font-size: 11px; color: #aaa; margin-left: 10px; }
+    </style>
+</head>
+<body>
+    <div id="toolbar">
+        <button onclick="runCode()">▶ Run</button>
+        <button class="secondary" onclick="getSelectionData()">⬇ Input</button>
+        <span id="status">Initializing...</span>
+        <button class="close" onclick="closePanel()">×</button>
+    </div>
+    
+    <!-- エディタエリア -->
+    <div id="editor-container">
+        <div id="editor"># Python Smart Editor
+import sys
+
+# データは 'page_title', 'page_url', 'selection' に入ります
+print(f"Python: {sys.version.split()[0]}")
+
+def greet(name):
+    return f"Hello, {name}!"
+
+# 文字を打つと補完が出ます
+print(greet("User"))
+</div>
+    </div>
+
+    <!-- 出力エリア -->
+    <div id="output"></div>
+
+    <!-- 必要なライブラリ (Ace Editor) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.2/ace.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.2/ext-language_tools.js"></script>
+
+    <script src="main.js"></script>
+</body>
+</html>
