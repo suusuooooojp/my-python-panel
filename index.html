@@ -2,52 +2,221 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>PyPanel Pro</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>PyPanel IDE</title>
+    <!-- アイコンセット (FontAwesome) -->
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet">
     <style>
-        body { margin: 0; display: flex; flex-direction: column; height: 100vh; background: #2F3129; color: #eee; font-family: sans-serif; overflow: hidden; }
-        #toolbar { padding: 8px; background: #222; display: flex; gap: 8px; border-bottom: 1px solid #444; align-items: center; }
-        button { cursor: pointer; background: #4CAF50; border: none; color: white; padding: 6px 12px; border-radius: 4px; font-size: 13px; font-weight: bold; }
-        button:hover { background: #45a049; }
-        button.secondary { background: #555; }
-        button.close { background: #d32f2f; margin-left: auto; }
-        #editor-container { flex: 1; position: relative; }
-        #editor { position: absolute; top: 0; right: 0; bottom: 0; left: 0; font-size: 14px; }
-        #output { height: 150px; background: #111; border-top: 1px solid #444; padding: 10px; overflow-y: auto; white-space: pre-wrap; font-family: monospace; font-size: 13px; color: #ddd; }
-        #status { font-size: 11px; color: #aaa; margin-left: 10px; }
+        :root {
+            --bg-activity: #333333;
+            --bg-sidebar: #252526;
+            --bg-editor: #1e1e1e;
+            --bg-status: #007acc;
+            --border: #3e3e42;
+            --hover: #2a2d2e;
+            --selection: #37373d;
+            --text-main: #cccccc;
+            --text-sub: #969696;
+            --accent: #007acc;
+        }
+        
+        body { margin: 0; display: flex; height: 100vh; background: var(--bg-editor); color: var(--text-main); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; overflow: hidden; user-select: none; }
+        
+        /* 左端のアクティビティバー */
+        #activity-bar {
+            width: 48px;
+            background: var(--bg-activity);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding-top: 10px;
+            z-index: 10;
+        }
+        .activity-icon {
+            width: 48px; height: 48px;
+            display: flex; justify-content: center; align-items: center;
+            color: #858585; font-size: 24px; cursor: pointer;
+            border-left: 2px solid transparent;
+        }
+        .activity-icon.active { color: white; border-left-color: white; }
+        .activity-icon:hover { color: white; }
+
+        /* サイドバー (エクスプローラー) */
+        #sidebar {
+            width: 250px;
+            background: var(--bg-sidebar);
+            display: flex;
+            flex-direction: column;
+            border-right: 1px solid var(--bg-editor);
+            transition: width 0.1s;
+        }
+        
+        .sidebar-title {
+            padding: 10px 20px;
+            font-size: 11px;
+            color: var(--text-sub);
+            text-transform: uppercase;
+            display: flex; justify-content: space-between;
+        }
+
+        /* ツリービュー */
+        .tree-container { flex: 1; overflow-y: auto; padding-top: 5px; }
+        
+        .tree-item {
+            display: flex;
+            align-items: center;
+            padding: 3px 0;
+            cursor: pointer;
+            font-size: 13px;
+            color: var(--text-main);
+            white-space: nowrap;
+        }
+        .tree-item:hover { background-color: var(--hover); }
+        .tree-item.selected { background-color: var(--selection); color: white; }
+        
+        .tree-indent { display: inline-block; } /* インデント用 */
+        
+        .tree-icon {
+            width: 20px; text-align: center; margin-right: 4px;
+            font-size: 14px; color: var(--text-sub);
+        }
+        .fa-folder { color: #dcb67a; }
+        .fa-folder-open { color: #dcb67a; }
+        .fa-python { color: #3776ab; }
+        .fa-js { color: #f0db4f; }
+        .fa-html5 { color: #e34c26; }
+        .fa-css3 { color: #264de4; }
+        .fa-markdown { color: #ad5c51; }
+
+        .tree-arrow {
+            width: 20px; text-align: center;
+            font-size: 10px; color: var(--text-sub);
+            transition: transform 0.1s;
+        }
+        .tree-arrow.open { transform: rotate(90deg); }
+        .tree-arrow.hidden { visibility: hidden; }
+
+        /* メインエリア */
+        #main-area { flex: 1; display: flex; flex-direction: column; background: var(--bg-editor); min-width: 0; }
+        
+        /* タブバー（簡易） */
+        #tab-bar {
+            height: 35px; background: var(--bg-editor); display: flex;
+            border-bottom: 1px solid var(--bg-activity); overflow-x: auto;
+        }
+        .tab {
+            padding: 0 15px; display: flex; align-items: center; gap: 8px;
+            font-size: 13px; background: #2d2d2d; color: #888;
+            border-right: 1px solid #252526; cursor: pointer; min-width: 100px;
+        }
+        .tab.active { background: var(--bg-editor); color: white; border-top: 1px solid var(--accent); }
+        .tab i.close-tab { font-size: 10px; border-radius: 3px; padding: 2px; }
+        .tab i.close-tab:hover { background: #444; }
+
+        /* エディタ */
+        #editor { flex: 1; }
+
+        /* ターミナル */
+        #panel {
+            height: 150px; border-top: 1px solid var(--border);
+            display: flex; flex-direction: column; background: var(--bg-editor);
+        }
+        .panel-header {
+            padding: 5px 15px; font-size: 11px; font-weight: bold;
+            display: flex; gap: 15px; color: var(--text-sub); border-bottom: 1px solid #333;
+        }
+        .panel-tab { cursor: pointer; padding-bottom: 2px; }
+        .panel-tab.active { color: white; border-bottom: 1px solid white; }
+        #terminal-output {
+            flex: 1; padding: 10px; font-family: monospace; font-size: 12px;
+            overflow-y: auto; color: #ddd; white-space: pre-wrap;
+        }
+
+        /* アクションボタン類 */
+        #sidebar-actions {
+            padding: 5px; display: flex; justify-content: flex-end; gap: 10px;
+            font-size: 12px; color: var(--text-sub); border-bottom: 1px solid #333;
+        }
+        #sidebar-actions i { cursor: pointer; padding: 4px; }
+        #sidebar-actions i:hover { color: white; background: #333; border-radius: 3px; }
+
+        /* モバイル対応 */
+        @media (max-width: 768px) {
+            #activity-bar { display: none; }
+            #sidebar { width: 0; position: absolute; height: 100%; z-index: 99; overflow: hidden; }
+            #sidebar.open { width: 80%; }
+            .mobile-menu-btn { display: block !important; padding: 10px; color: white; cursor: pointer; }
+        }
+        .mobile-menu-btn { display: none; }
     </style>
 </head>
 <body>
-    <div id="toolbar">
-        <button onclick="runCode()">▶ Run</button>
-        <button class="secondary" onclick="getSelectionData()">⬇ Input</button>
-        <span id="status">Initializing...</span>
-        <button class="close" onclick="closePanel()">×</button>
+    <!-- 1. アクティビティバー (左端) -->
+    <div id="activity-bar">
+        <div class="activity-icon active"><i class="far fa-copy"></i></div> <!-- Explorer -->
+        <div class="activity-icon"><i class="fas fa-search"></i></div>
+        <div class="activity-icon"><i class="fas fa-code-branch"></i></div>
+        <div class="activity-icon" style="margin-top:auto"><i class="fas fa-cog"></i></div>
     </div>
-    
-    <!-- エディタエリア -->
-    <div id="editor-container">
-        <div id="editor"># Python Smart Editor
-import sys
 
-# データは 'page_title', 'page_url', 'selection' に入ります
-print(f"Python: {sys.version.split()[0]}")
+    <!-- 2. サイドバー (エクスプローラー) -->
+    <div id="sidebar">
+        <div class="sidebar-title">EXPLORER <span onclick="toggleSidebar()" style="cursor:pointer">...</span></div>
+        
+        <!-- 新規作成アイコンなど -->
+        <div id="sidebar-actions">
+            <i class="fas fa-file-circle-plus" title="New File" onclick="createNewFile()"></i>
+            <i class="fas fa-folder-plus" title="New Folder" onclick="createNewFolder()"></i>
+            <i class="fas fa-redo" title="Refresh" onclick="renderExplorer()"></i>
+            <i class="fas fa-download" title="Download" onclick="downloadCurrentFile()"></i>
+        </div>
 
-def greet(name):
-    return f"Hello, {name}!"
+        <!-- ツリービュー本体 -->
+        <div class="tree-container" id="fileTree">
+            <!-- JSでここに生成 -->
+        </div>
+    </div>
 
-# 文字を打つと補完が出ます
-print(greet("User"))
+    <!-- 3. メインエリア -->
+    <div id="main-area">
+        <!-- モバイル用メニューボタン -->
+        <div class="mobile-menu-btn" onclick="toggleSidebar()"><i class="fas fa-bars"></i></div>
+
+        <!-- タブ -->
+        <div id="tab-bar">
+            <div class="tab active">
+                <i class="fab fa-python" style="color:#3776ab; margin-right:5px"></i>
+                <span id="tab-filename">main.py</span>
+                <i class="fas fa-times close-tab" style="margin-left:8px"></i>
+            </div>
+            <div style="flex:1; display:flex; justify-content:flex-end; align-items:center; padding-right:10px;">
+                <button onclick="runProject()" style="background:#4CAF50; border:none; color:white; border-radius:3px; padding:3px 10px; cursor:pointer;">
+                    <i class="fas fa-play"></i>
+                </button>
+            </div>
+        </div>
+
+        <!-- エディタ -->
+        <div id="editor"></div>
+
+        <!-- ターミナルパネル -->
+        <div id="panel">
+            <div class="panel-header">
+                <span class="panel-tab active">TERMINAL</span>
+                <span class="panel-tab">OUTPUT</span>
+                <span class="panel-tab">PROBLEMS</span>
+                <span style="flex:1"></span>
+                <span style="cursor:pointer" onclick="clearTerminal()"><i class="fas fa-ban"></i></span>
+            </div>
+            <div id="terminal-output">PyPanel Pro 2.0
+Ready.
 </div>
+        </div>
     </div>
 
-    <!-- 出力エリア -->
-    <div id="output"></div>
-
-    <!-- 必要なライブラリ (Ace Editor) -->
+    <!-- ライブラリ -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.2/ace.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.2/ext-language_tools.js"></script>
-
     <script src="main.js"></script>
 </body>
 </html>
