@@ -1,10 +1,9 @@
-const CACHE_NAME = 'pypanel-pro-v2';
+const CACHE_NAME = 'pypanel-pro-v3';
 const ASSETS = [
     './',
     './index.html',
     './main.js',
     './py-worker.js',
-    './README.md',
     // Pyodide Core
     'https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js',
     'https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.asm.js',
@@ -14,17 +13,14 @@ const ASSETS = [
     'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.2/ace.js',
     'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.2/ext-language_tools.js',
     'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.2/theme-monokai.js',
-    // Languages & Snippets
+    // Language Support
     'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.2/mode-python.js',
-    'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.2/snippets/python.js',
     'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.2/mode-javascript.js',
-    'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.2/snippets/javascript.js',
     'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.2/mode-typescript.js',
-    'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.2/snippets/typescript.js',
     'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.2/mode-html.js',
-    'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.2/snippets/html.js',
     'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.2/mode-css.js',
-    'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.2/snippets/css.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.2/mode-java.js',
+    'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.2/mode-golang.js',
     'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.2/worker-base.js'
 ];
 
