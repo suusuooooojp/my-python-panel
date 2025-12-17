@@ -3,122 +3,122 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>PyPanel Ultra Shell</title>
+    <title>PyPanel Ultra Bundler</title>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;600&display=swap" rel="stylesheet">
     <style>
         :root {
             --bg-dark: #1e1e1e;
             --bg-sidebar: #252526;
-            --bg-editor: #1e1e1e;
-            --bg-terminal: #1e1e1e;
+            --bg-panel: #1e1e1e;
             --accent: #007acc;
             --text-main: #cccccc;
             --border: #333333;
         }
-
+        * { box-sizing: border-box; }
         body { margin: 0; display: flex; flex-direction: column; height: 100vh; background: var(--bg-dark); color: var(--text-main); font-family: 'Inter', sans-serif; overflow: hidden; }
 
         /* Toolbar */
         #toolbar { 
-            height: 40px; background: #333333; display: flex; align-items: center; padding: 0 10px; border-bottom: 1px solid #111; 
+            height: 45px; background: #333; display: flex; align-items: center; padding: 0 10px; border-bottom: 1px solid #111; 
             justify-content: space-between; flex-shrink: 0; z-index: 100;
         }
-        h1 { margin: 0; font-size: 14px; color: #fff; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+        h1 { margin: 0; font-size: 14px; color: #fff; font-weight: 600; display: flex; align-items: center; gap: 8px; white-space: nowrap; }
         .tool-group { display: flex; gap: 8px; align-items: center; }
         
         button { 
-            cursor: pointer; border: none; padding: 5px 12px; border-radius: 3px; font-size: 12px; font-weight: 600; color: white; transition: 0.2s; display: flex; align-items: center; gap: 5px;
+            cursor: pointer; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; font-weight: 600; color: white; transition: 0.2s; display: flex; align-items: center; gap: 5px;
         }
         #runBtn { background: #2ea043; } #runBtn:hover { background: #3fb950; }
         #stopBtn { background: #da3633; display: none; } #stopBtn:hover { background: #f85149; }
         #popBtn { background: #007acc; } #popBtn:hover { background: #0062a3; }
-        .icon-btn { background: transparent; color: #aaa; padding: 6px; font-size: 16px; } .icon-btn:hover { color: #fff; background: #444; }
+        .icon-btn { background: transparent; color: #aaa; padding: 6px; font-size: 18px; } .icon-btn:hover { color: #fff; background: #444; }
 
         /* Workspace */
         #workspace { flex: 1; display: flex; overflow: hidden; position: relative; }
 
-        /* Sidebar (Explorer) */
+        /* Explorer */
         #sidebar { 
-            width: 240px; background: var(--bg-sidebar); border-right: 1px solid var(--border); display: flex; flex-direction: column;
-            transition: width 0.1s ease; flex-shrink: 0; user-select: none;
+            width: 220px; background: var(--bg-sidebar); border-right: 1px solid var(--border); display: flex; flex-direction: column;
+            transition: transform 0.2s ease; flex-shrink: 0; user-select: none;
         }
-        #sidebar.collapsed { width: 0; border: none; overflow: hidden; }
-        .sidebar-header { padding: 10px; font-size: 11px; font-weight: bold; color: #888; display: flex; justify-content: space-between; align-items: center; }
+        .sidebar-header { padding: 10px; font-size: 11px; font-weight: bold; color: #888; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; }
+        #file-tree { flex: 1; overflow-y: auto; padding: 5px 0; }
         
-        #file-tree { flex: 1; overflow-y: auto; padding-bottom: 10px; }
-        
-        /* Tree Items */
-        .tree-node { padding: 4px 0; cursor: pointer; font-size: 13px; color: #ccc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .tree-node:hover { background: #2a2d2e; }
-        .tree-node.active { background: #37373d; color: white; border-left: 2px solid var(--accent); }
-        .tree-content { display: flex; align-items: center; gap: 5px; padding-right: 10px; }
-        .tree-indent { display: inline-block; }
-        .folder-icon { color: #dcb67a; font-weight: bold; }
-        .file-icon { color: #ccc; }
+        .tree-item { cursor: pointer; color: #ccc; font-size: 13px; padding: 4px 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .tree-item:hover { background: #2a2d2e; }
+        .tree-item.active { background: #37373d; color: white; border-left: 2px solid var(--accent); }
         
         /* Editor Area */
-        #editor-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; height: 100%; }
+        #editor-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; height: 100%; position: relative; }
         #tabs { height: 35px; background: #2d2d2d; display: flex; align-items: center; overflow-x: auto; flex-shrink: 0; border-bottom: 1px solid #111; }
         .tab { 
-            padding: 0 15px; height: 100%; display: flex; align-items: center; font-size: 13px; color: #888; background: #2d2d2d; cursor: pointer; border-right: 1px solid #1e1e1e; min-width: 80px; justify-content: center;
+            padding: 0 15px; height: 100%; display: flex; align-items: center; font-size: 13px; color: #888; background: #2d2d2d; cursor: pointer; border-right: 1px solid #1e1e1e; min-width: 80px; justify-content: center; white-space: nowrap;
         }
-        .tab.active { background: var(--bg-editor); color: #fff; border-top: 2px solid var(--accent); }
+        .tab.active { background: #1e1e1e; color: #fff; border-top: 2px solid var(--accent); }
         
-        #editor-container { flex: 1; overflow: hidden; position: relative; }
+        #editor-container { flex: 1; overflow: hidden; }
 
         /* Resizer */
-        .resizer { height: 6px; background: #2d2d2d; cursor: row-resize; border-top: 1px solid #333; z-index: 10; flex-shrink: 0; }
+        .resizer { 
+            height: 12px; background: #252526; cursor: row-resize; border-top: 1px solid #333; border-bottom: 1px solid #333;
+            z-index: 20; flex-shrink: 0; display: flex; justify-content: center; align-items: center;
+        }
+        .resizer::after { content: "••••"; color: #555; font-size: 8px; letter-spacing: 2px; }
 
-        /* Terminal Shell */
-        #terminal-pane { 
-            height: 250px; background: var(--bg-terminal); display: flex; flex-direction: column; min-height: 0; flex-shrink: 0;
-            border-top: 1px solid #333;
+        /* Bottom Panel (Terminal / Preview) */
+        #bottom-panel { 
+            height: 250px; background: var(--bg-panel); display: flex; flex-direction: column; min-height: 0; flex-shrink: 0; 
         }
-        #term-header { 
-            padding: 0 10px; height: 30px; background: #222; font-size: 11px; color: #888; display: flex; justify-content: space-between; align-items: center; 
-            border-bottom: 1px solid #333; flex-shrink: 0; cursor: pointer;
+        #panel-tabs {
+            height: 30px; background: #222; display: flex; border-bottom: 1px solid #333;
         }
+        .panel-tab {
+            padding: 0 15px; font-size: 11px; color: #888; display: flex; align-items: center; cursor: pointer; border-right: 1px solid #333;
+        }
+        .panel-tab.active { background: #1e1e1e; color: white; font-weight: bold; }
+        .panel-tab:hover { color: #fff; }
+
+        /* Content Areas */
+        #terminal-area, #preview-area { flex: 1; display: none; overflow: hidden; position: relative; }
+        #terminal-area.show, #preview-area.show { display: flex; flex-direction: column; }
+
         #output { 
             flex: 1; padding: 10px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.5; color: #d4d4d4; 
-            cursor: text;
+            user-select: text; -webkit-user-select: text;
         }
+        #preview-frame { width: 100%; height: 100%; border: none; background: white; }
+
         /* Shell Input */
         .shell-line { display: flex; margin-top: 5px; }
         .shell-prompt { color: #2ea043; margin-right: 8px; font-weight: bold; }
-        .shell-path { color: #4ec9b0; margin-right: 8px; }
-        #shell-input { 
-            flex: 1; background: transparent; border: none; color: #fff; font-family: 'JetBrains Mono', monospace; font-size: 13px; outline: none; 
-        }
+        #shell-input { flex: 1; background: transparent; border: none; color: #fff; font-family: inherit; font-size: inherit; outline: none; }
 
-        #preview-frame { flex: 1; border: none; background: white; display: none; }
-
-        /* Overlays */
+        /* Popup */
         #popup-overlay {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.6); backdrop-filter: blur(2px);
-            z-index: 2000; display: none; justify-content: center; align-items: center;
+            background: rgba(0,0,0,0.8); z-index: 3000; display: none; justify-content: center; align-items: center;
         }
         .popup-window {
-            background: #252526; color: #fff; border-radius: 8px; overflow: hidden; 
-            box-shadow: 0 20px 50px rgba(0,0,0,0.5); border: 1px solid #444; width: 90%; height: 90%; display: flex; flex-direction: column;
+            background: #fff; width: 95%; height: 90%; display: flex; flex-direction: column; border-radius: 8px; overflow: hidden;
         }
-        .popup-header { background: #333; padding: 8px 15px; display: flex; justify-content: space-between; font-weight: bold; }
-        .popup-close-btn { background: #f44336; border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; }
-        #popup-content-frame { flex: 1; border: none; background: #fff; }
+        .popup-header { background: #333; padding: 10px; display: flex; justify-content: space-between; color: white; }
+        .popup-close { background: #f44336; border: none; color: white; width: 30px; height: 30px; border-radius: 4px; font-size: 18px; }
+        #popup-content { flex: 1; border: none; background: #fff; }
 
-        /* Context Menu (Right Click) */
+        /* Context Menu */
         #context-menu {
-            position: absolute; background: #252526; border: 1px solid #444; box-shadow: 2px 2px 10px rgba(0,0,0,0.5);
-            display: none; z-index: 3000; padding: 5px 0; border-radius: 4px; min-width: 120px;
+            position: absolute; background: #252526; border: 1px solid #444; display: none; z-index: 4000; min-width: 120px;
         }
-        .ctx-item { padding: 6px 15px; font-size: 12px; cursor: pointer; color: #eee; }
-        .ctx-item:hover { background: #007acc; color: #fff; }
+        .ctx-item { padding: 8px 15px; font-size: 13px; cursor: pointer; color: #eee; }
+        .ctx-item:hover { background: #007acc; }
 
         @media (max-width: 768px) {
-            #sidebar { position: absolute; height: 100%; z-index: 50; transform: translateX(-100%); width: 250px; box-shadow: 2px 0 10px rgba(0,0,0,0.5); }
-            #sidebar.open { transform: translateX(0); width: 250px !important; }
+            #sidebar { position: absolute; height: 100%; z-index: 50; transform: translateX(-100%); width: 260px; box-shadow: 2px 0 10px rgba(0,0,0,0.5); }
+            #sidebar.open { transform: translateX(0); }
             h1 span { display: none; }
             #toolbar { padding: 0 5px; gap: 5px; }
+            button { padding: 6px 8px; font-size: 11px; }
+            #bottom-panel { height: 40%; }
         }
     </style>
 </head>
@@ -126,72 +126,70 @@
 
 <div id="toolbar">
     <div class="tool-group">
-        <button class="icon-btn" onclick="toggleSidebar()" title="Toggle Explorer">📂</button>
-        <h1>🐍 <span>PyPanel Ultra Shell</span></h1>
+        <button class="icon-btn" onclick="toggleSidebar()">📂</button>
+        <h1>🐍 <span>PyPanel Ultra</span></h1>
     </div>
     <div class="tool-group">
-        <span id="status" style="font-size: 11px; color: #666;">Ready</span>
-        <button id="popBtn" onclick="openPopup()" title="Web Preview Popup">❐ Pop</button>
-        <button id="runBtn" onclick="runActiveFile()">▶ Run</button>
+        <span id="status" style="font-size: 11px; color: #666; display:none;">Ready</span>
+        <button id="popBtn" onclick="openPopup()">❐ Pop</button>
+        <button id="runBtn" onclick="runProject()">▶ Run</button>
         <button id="stopBtn" onclick="stopCode()">⏹ Stop</button>
-        <button class="icon-btn" onclick="toggleTerminal()" title="Toggle Terminal">💻</button>
+        <button class="icon-btn" onclick="resetAll()" title="Reset" style="color: #f44336;">⚡</button>
     </div>
 </div>
 
 <div id="workspace">
-    <!-- Explorer -->
     <div id="sidebar">
         <div class="sidebar-header">
             <span>EXPLORER</span>
-            <div style="display:flex; gap:5px;">
-                <span style="cursor:pointer; color:#fff;" onclick="createNew('folder')" title="New Folder">📁</span>
-                <span style="cursor:pointer; color:#fff;" onclick="createNew('file')" title="New File">+</span>
-            </div>
+            <span style="cursor:pointer; color:#fff; font-size:18px;" onclick="createNew()">+</span>
         </div>
         <div id="file-tree"></div>
     </div>
 
-    <!-- Main Pane -->
     <div id="editor-pane">
         <div id="tabs"></div>
         <div id="editor-container"></div>
         
         <div class="resizer" id="resizer"></div>
         
-        <!-- Terminal -->
-        <div id="terminal-pane">
-            <div id="term-header" ondblclick="toggleTerminal()">
-                <span>TERMINAL</span>
-                <span style="cursor:pointer; color:#007acc;" onclick="term.clear()">CLEAR</span>
+        <div id="bottom-panel">
+            <div id="panel-tabs">
+                <div class="panel-tab active" id="tab-term" onclick="switchPanel('terminal')">TERMINAL</div>
+                <div class="panel-tab" id="tab-prev" onclick="switchPanel('preview')">PREVIEW</div>
+                <div class="panel-tab" onclick="clearOutput()" style="margin-left:auto;">CLEAR</div>
             </div>
-            <div id="output" onclick="document.getElementById('shell-input').focus()">
-                <div id="term-log"></div>
-                <div class="shell-line">
-                    <span class="shell-prompt">user@pypanel:</span>
-                    <span class="shell-path" id="shell-cwd">~/</span>
-                    <span style="margin-right:5px;">$</span>
-                    <input type="text" id="shell-input" autocomplete="off" spellcheck="false">
+            
+            <!-- Terminal -->
+            <div id="terminal-area" class="show">
+                <div id="output" onclick="document.getElementById('shell-input').focus()">
+                    <div id="term-log"></div>
+                    <div class="shell-line">
+                        <span class="shell-prompt">$</span>
+                        <input type="text" id="shell-input" autocomplete="off">
+                    </div>
                 </div>
             </div>
-            <iframe id="preview-frame"></iframe>
+
+            <!-- Preview -->
+            <div id="preview-area">
+                <iframe id="preview-frame"></iframe>
+            </div>
         </div>
     </div>
 </div>
 
-<!-- Context Menu -->
 <div id="context-menu">
     <div class="ctx-item" onclick="ctxDelete()">削除 (Delete)</div>
-    <div class="ctx-item" onclick="ctxRun()">実行 (Run)</div>
 </div>
 
-<!-- Popup Preview -->
 <div id="popup-overlay">
     <div class="popup-window">
         <div class="popup-header">
-            <span>WEB PREVIEW</span>
-            <button class="popup-close-btn" onclick="closePopup()">×</button>
+            <span>FULL PREVIEW</span>
+            <button class="popup-close" onclick="closePopup()">×</button>
         </div>
-        <iframe id="popup-content-frame" sandbox="allow-scripts allow-modals allow-same-origin"></iframe>
+        <iframe id="popup-content"></iframe>
     </div>
 </div>
 
