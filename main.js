@@ -1,382 +1,461 @@
 // --- Service Worker ---
-if ('serviceWorker' in navigator) {
-    navigator.serviceWorker.register('sw.js').catch(() => {});
-}
+if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 
 // --- Monaco Editor Setup ---
 require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' }});
 window.MonacoEnvironment = {
-    getWorkerUrl: function () {
-        return `data:text/javascript;charset=utf-8,${encodeURIComponent(`
-            self.MonacoEnvironment = { baseUrl: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/' };
-            importScripts('https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/base/worker/workerMain.js');`
-        )}`;
-    }
+    getWorkerUrl: () => `data:text/javascript;charset=utf-8,${encodeURIComponent(`
+        self.MonacoEnvironment = { baseUrl: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/' };
+        importScripts('https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/base/worker/workerMain.js');`
+    )}`
 };
 
 let editor;
-let zenkakuDecorations = [];
-const sidebar = document.getElementById('sidebar');
-const terminalPane = document.getElementById('terminal-pane');
-const fileList = document.getElementById('file-list');
-const tabsContainer = document.getElementById('tabs');
-const outputDiv = document.getElementById('output');
-const previewFrame = document.getElementById('preview-frame');
-const statusSpan = document.getElementById('status');
-const runBtn = document.getElementById('runBtn');
-const stopBtn = document.getElementById('stopBtn');
-const popupOverlay = document.getElementById('popup-overlay');
-const popupFrame = document.getElementById('popup-content-frame');
-const confirmOverlay = document.getElementById('confirm-overlay');
-const confirmMsg = document.getElementById('confirm-msg');
+let currentPath = ""; // 現在開いているファイルパス
+let cwd = "~"; // 現在のディレクトリ (Terminal用)
 
-// --- Default Files ---
+// --- File System (Path based) ---
+// Key: "folder/filename.ext", Value: { content: "...", mode: "python" }
 const DEFAULT_FILES = {
     'main.py': {
-        content: `# Python (Pyodide)
-import sys
-import numpy as np
-
-print(f"🐍 Python {sys.version.split()[0]}")
-# 全角スペースのテスト（オレンジ色になります）
-# ↓
-　
-print("Done.")
-`, mode: 'python'
+        content: `import sys\nimport numpy as np\n\nprint(f"🐍 Python {sys.version.split()[0]}")\nprint("Hello from Root!")`, 
+        mode: 'python'
     },
-    'Main.java': {
-        content: `// Java (CheerpJ)
-public class Main {
-    public static void main(String[] args) {
-        System.out.println("☕ Hello from Java running in Browser!");
-        long start = System.currentTimeMillis();
-        for(int i=0; i<5; i++) {
-            System.out.println("Count: " + i);
-        }
-        System.out.println("Time: " + (System.currentTimeMillis() - start) + "ms");
+    'src/utils.py': {
+        content: `def greet(name):\n    return f"Hello, {name}!"`, 
+        mode: 'python'
+    },
+    'assets/style.css': {
+        content: `body { background: #222; color: #fff; }`,
+        mode: 'css'
+    },
+    'index.html': {
+        content: `<!DOCTYPE html>\n<html>\n<head>\n<!-- assets/style.css will be injected -->\n</head>\n<body>\n<h1>Hello Web</h1>\n</body>\n</html>`,
+        mode: 'html'
     }
-}`, mode: 'java'
-    },
-    'main.go': {
-        content: `// Go (WASM)
-package main
-
-import "fmt"
-
-func main() {
-	fmt.Println("🐹 Hello from Go WASM!")
-    fmt.Println("Computation running...")
-}
-`, mode: 'go'
-    },
-    'index.html': { content: `<!DOCTYPE html><html><head></head><body><h1>Hello Web</h1></body></html>`, mode: 'html' }
 };
 
 let files = JSON.parse(localStorage.getItem('pypanel_files')) || DEFAULT_FILES;
-let currentFileName = localStorage.getItem('pypanel_current') || 'main.py';
 
 // --- Initialize Monaco ---
 require(['vs/editor/editor.main'], function() {
+    // 最初のファイルを探して開く
+    currentPath = Object.keys(files)[0] || "";
+    
     editor = monaco.editor.create(document.getElementById('editor-container'), {
-        value: files[currentFileName].content,
-        language: getMonacoLang(files[currentFileName].mode),
+        value: currentPath ? files[currentPath].content : "",
+        language: currentPath ? getLangFromExt(currentPath) : 'text',
         theme: 'vs-dark',
         fontSize: 14,
-        automaticLayout: true, // 自動レイアウト調整
-        minimap: { enabled: true, scale: 0.75, renderCharacters: false }, // ミニマップ
-        padding: { top: 10 },
-        fontFamily: "'JetBrains Mono', 'Consolas', monospace",
-        formatOnType: true,
-        formatOnPaste: true,
-        renderWhitespace: 'boundary'
+        automaticLayout: true,
+        minimap: { enabled: true, scale: 0.75 },
+        fontFamily: "'JetBrains Mono', monospace",
     });
 
-    switchFile(currentFileName);
-    renderExplorer();
-    updateZenkakuDecorations();
-
+    // 保存イベント
     editor.onDidChangeModelContent(() => {
-        files[currentFileName].content = editor.getValue();
-        localStorage.setItem('pypanel_files', JSON.stringify(files));
-        updateZenkakuDecorations();
-    });
-
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, runCode);
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => { /* Auto Saved */ });
-});
-
-// 全角スペース検知 (Zenkaku Detection)
-function updateZenkakuDecorations() {
-    if (!editor) return;
-    const model = editor.getModel();
-    const matches = model.findMatches('　', false, false, false, null, true);
-    const newDecorations = matches.map(match => ({
-        range: match.range,
-        options: {
-            isWholeLine: false,
-            className: 'zenkaku-bg',
-            inlineClassName: 'zenkaku-bg'
-        }
-    }));
-    zenkakuDecorations = model.deltaDecorations(zenkakuDecorations, newDecorations);
-}
-
-// CSS for Zenkaku
-const style = document.createElement('style');
-style.innerHTML = `.zenkaku-bg { background: rgba(255, 165, 0, 0.4); border: 1px solid orange; }`;
-document.head.appendChild(style);
-
-function getMonacoLang(mode) {
-    if(mode === 'js' || mode === 'node') return 'javascript';
-    if(mode === 'rb') return 'ruby';
-    return mode;
-}
-
-// --- Layout Logic ---
-function toggleSidebar() {
-    sidebar.classList.toggle('collapsed');
-    // サイドバーを閉じた後、エディタのレイアウトを更新
-    setTimeout(() => editor && editor.layout(), 200);
-}
-
-function toggleTerminal() {
-    terminalPane.classList.toggle('collapsed');
-    setTimeout(() => editor && editor.layout(), 200);
-}
-
-// Resizer Logic (Fixed)
-let isResizing = false;
-const resizer = document.getElementById('resizer');
-
-resizer.addEventListener('mousedown', (e) => {
-    isResizing = true;
-    document.body.style.cursor = 'row-resize';
-    e.preventDefault(); // 選択防止
-});
-
-document.addEventListener('mousemove', (e) => {
-    if (!isResizing) return;
-    const containerH = document.getElementById('editor-pane').offsetHeight;
-    const newHeight = window.innerHeight - e.clientY;
-    
-    // 最小・最大サイズの制限
-    if (newHeight > 30 && newHeight < containerH - 50) {
-        terminalPane.style.height = newHeight + 'px';
-        editor.layout(); // 重要: エディタのリサイズ
-    }
-});
-
-document.addEventListener('mouseup', () => {
-    if (isResizing) {
-        isResizing = false;
-        document.body.style.cursor = 'default';
-        editor.layout();
-    }
-});
-window.addEventListener('resize', () => editor && editor.layout());
-
-
-// --- File System ---
-function switchFile(fileName) {
-    currentFileName = fileName;
-    const file = files[fileName];
-    if(editor) {
-        const model = editor.getModel();
-        monaco.editor.setModelLanguage(model, getMonacoLang(file.mode));
-        editor.setValue(file.content);
-        updateZenkakuDecorations();
-    }
-    
-    const langSelect = document.getElementById('langSelect');
-    if (fileName.endsWith('.py')) langSelect.value = 'python';
-    else if (fileName.endsWith('.java')) langSelect.value = 'java';
-    else if (fileName.endsWith('.go')) langSelect.value = 'go';
-    else if (fileName.endsWith('.rb')) langSelect.value = 'ruby';
-    
-    renderExplorer();
-    localStorage.setItem('pypanel_current', currentFileName);
-}
-
-function addNewFile() {
-    const name = prompt("Filename:", "new.py");
-    if (!name || files[name]) return;
-    let mode = 'text';
-    if(name.endsWith('.py')) mode='python';
-    if(name.endsWith('.java')) mode='java';
-    if(name.endsWith('.go')) mode='go';
-    files[name] = { content: "", mode: mode };
-    switchFile(name);
-}
-
-function renderExplorer() {
-    fileList.innerHTML = "";
-    tabsContainer.innerHTML = "";
-    Object.keys(files).forEach(name => {
-        const item = document.createElement('div');
-        item.className = `file-item ${name === currentFileName ? 'active' : ''}`;
-        item.innerHTML = `<span>${getIcon(name)} ${name}</span>`;
-        item.onclick = () => switchFile(name);
-        fileList.appendChild(item);
-
-        if(name === currentFileName) {
-            const tab = document.createElement('div');
-            tab.className = "tab active";
-            tab.innerText = name;
-            tabsContainer.appendChild(tab);
+        if(files[currentPath]) {
+            files[currentPath].content = editor.getValue();
+            saveFS();
         }
     });
+
+    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, runActiveFile);
+    renderFileTree();
+});
+
+function saveFS() {
+    localStorage.setItem('pypanel_files', JSON.stringify(files));
 }
 
-function getIcon(n) {
-    if(n.endsWith('.py')) return '🐍';
-    if(n.endsWith('.java')) return '☕';
-    if(n.endsWith('.go')) return '🐹';
+function getLangFromExt(path) {
+    if(path.endsWith('.py')) return 'python';
+    if(path.endsWith('.js')) return 'javascript';
+    if(path.endsWith('.html')) return 'html';
+    if(path.endsWith('.css')) return 'css';
+    if(path.endsWith('.java')) return 'java';
+    if(path.endsWith('.go')) return 'go';
+    if(path.endsWith('.rb')) return 'ruby';
+    if(path.endsWith('.json')) return 'json';
+    if(path.endsWith('.yaml')) return 'yaml';
+    return 'plaintext';
+}
+
+// --- Explorer (Tree View) ---
+function renderFileTree() {
+    const tree = document.getElementById('file-tree');
+    tree.innerHTML = "";
+    
+    // パスを構造化データに変換
+    const structure = {};
+    Object.keys(files).sort().forEach(path => {
+        const parts = path.split('/');
+        let current = structure;
+        parts.forEach((part, i) => {
+            if(!current[part]) {
+                current[part] = (i === parts.length - 1) ? { __file: true, path: path } : {};
+            }
+            current = current[part];
+        });
+    });
+
+    // 再帰的に描画
+    function buildDom(obj, container, indent = 0) {
+        Object.keys(obj).sort((a,b) => {
+            // フォルダ優先
+            const aIsFile = obj[a].__file;
+            const bIsFile = obj[b].__file;
+            if(aIsFile === bIsFile) return a.localeCompare(b);
+            return aIsFile ? 1 : -1;
+        }).forEach(key => {
+            if(key === '__file' || key === 'path') return;
+            
+            const item = obj[key];
+            const div = document.createElement('div');
+            div.className = 'tree-node';
+            if(item.__file && item.path === currentPath) div.classList.add('active');
+            
+            const padding = indent * 15 + 10;
+            const icon = item.__file ? getIcon(key) : '📁';
+            
+            div.innerHTML = `<div class="tree-content" style="padding-left:${padding}px">
+                <span class="folder-icon">${icon}</span> ${key}
+            </div>`;
+
+            // 右クリックメニュー
+            div.oncontextmenu = (e) => showContextMenu(e, item.__file ? item.path : null);
+
+            if(item.__file) {
+                div.onclick = () => openFile(item.path);
+            } else {
+                // フォルダクリック (今回は展開固定だが、トグル可能に拡張可)
+            }
+            container.appendChild(div);
+            
+            if(!item.__file) {
+                buildDom(item, container, indent + 1);
+            }
+        });
+    }
+
+    buildDom(structure, tree);
+}
+
+function getIcon(name) {
+    if(name.endsWith('.py')) return '🐍';
+    if(name.endsWith('.html')) return '🌐';
+    if(name.endsWith('.js')) return '📜';
+    if(name.endsWith('.css')) return '🎨';
+    if(name.endsWith('.rb')) return '💎';
+    if(name.endsWith('.java')) return '☕';
+    if(name.endsWith('.go')) return '🐹';
     return '📄';
 }
 
-// --- Execution & Download Logic ---
-
-let pyWorker = null;
-let cheerpjReady = false;
-let goWasmReady = false;
-
-// ダウンロード承認プロミス
-let confirmResolve = null;
-
-function showConfirm(msg) {
-    return new Promise(resolve => {
-        confirmMsg.textContent = msg;
-        confirmOverlay.style.display = 'flex';
-        confirmResolve = resolve;
-    });
-}
-function closeConfirm(result) {
-    confirmOverlay.style.display = 'none';
-    if(confirmResolve) confirmResolve(result);
+function openFile(path) {
+    currentPath = path;
+    const file = files[path];
+    monaco.editor.setModelLanguage(editor.getModel(), getLangFromExt(path));
+    editor.setValue(file.content);
+    renderFileTree();
+    
+    // Tabs
+    document.getElementById('tabs').innerHTML = `<div class="tab active">${path}</div>`;
 }
 
-async function runCode() {
-    clearOutput();
-    const mode = document.getElementById('langSelect').value;
-    const code = editor.getValue();
-    setRunning(true);
+function createNew(type) {
+    const defaultName = type === 'folder' ? 'new_folder/' : 'new_file.py';
+    let path = prompt(`Enter path (use / for folders):`, cwd === '~' ? defaultName : `${cwd}/${defaultName}`);
+    if(!path) return;
+    
+    // cwd補正
+    if(cwd !== '~' && !path.startsWith(cwd)) path = cwd + "/" + path;
+    path = path.replace('~/', ''); // normalize
 
-    // --- JAVA (CheerpJ) ---
-    if (mode === 'java') {
-        outputDiv.style.display = 'block'; previewFrame.style.display = 'none';
-        
-        if (!cheerpjReady) {
-            const ok = await showConfirm("Javaランタイム (CheerpJ) をダウンロードします。\nサイズ: 約 20MB〜\nダウンロードしますか？");
-            if(!ok) { setRunning(false); return; }
-            
-            log("☕ Initializing CheerpJ...", 'log-info');
-            // Load script dynamically
-            await loadScript("https://cjrtnc.leaningtech.com/3.0/cj3loader.js");
-            await cheerpjInit();
-            cheerpjReady = true;
-        }
+    if(type === 'folder') {
+        // フォルダ自体は仮想FSでは「その下のファイル」がないと存在しない概念だが、
+        // UXとしてダミーファイルを作る
+        files[`${path}/.keep`] = { content: "", mode: "text" };
+    } else {
+        if(files[path]) { alert("Exists!"); return; }
+        files[path] = { content: "", mode: getLangFromExt(path) };
+    }
+    saveFS();
+    renderFileTree();
+    if(type === 'file') openFile(path);
+}
 
-        log("Compiling & Running Java...", 'log-info');
-        try {
-            // 仮想ファイル作成
-            const fs = await cheerpjRunMain("com.leaningtech.cheerpj.fc.FileCreator", "/files/Main.java", code);
-            // コンパイル
-            // Note: CheerpJ 3 does not include 'javac' by default easily without heavier setup.
-            // For this demo, we assume the user might want to run a pre-compiled jar or we simulate compilation.
-            // *Correction*: CheerpJ runs JARs mostly. Running raw source requires javac.wasm.
-            // To make it "Fully Run" as requested without backend, we use a lighter trick or just explain:
-            
-            // 簡易実行: 本来はjavacが必要だが、ここでは「環境は整った」ことを示し、
-            // CheerpJのコンソールへ出力を繋ぐデモを行います。
-            
-            // (Real implementation of client-side javac is huge, >100MB)
-            // User requirement: "Warning about download size". So we assume a big download is OK.
-            // Let's mimic the execution for the "Pro" feel, or create a file and cat it.
-            
-            // 実際にはCheerpJ上で動作する簡易シェルを実行
-            log("Java Environment Active. (Source compilation requires full JDK wasm - emulated for demo)");
-            log("Output:\n" + "☕ Hello from Java running in Browser!\nCount: 0\nCount: 1..."); 
-            
-        } catch(e) {
-            log("Java Error: " + e.message, 'log-err');
-        }
-        setRunning(false);
+// --- Context Menu ---
+let ctxTarget = null;
+const ctxMenu = document.getElementById('context-menu');
+function showContextMenu(e, path) {
+    e.preventDefault();
+    if(!path) return; // フォルダ削除は今回は簡易化のためスキップ
+    ctxTarget = path;
+    ctxMenu.style.display = 'block';
+    ctxMenu.style.left = e.pageX + 'px';
+    ctxMenu.style.top = e.pageY + 'px';
+}
+document.addEventListener('click', () => ctxMenu.style.display = 'none');
 
-    // --- GO (WASM) ---
-    } else if (mode === 'go') {
-        outputDiv.style.display = 'block'; previewFrame.style.display = 'none';
-        
-        if (!goWasmReady) {
-            const ok = await showConfirm("Go WASMランタイムをダウンロードします。\nサイズ: 約 5MB\n続行しますか？");
-            if(!ok) { setRunning(false); return; }
+function ctxDelete() {
+    if(ctxTarget && confirm(`Delete ${ctxTarget}?`)) {
+        delete files[ctxTarget];
+        if(currentPath === ctxTarget) openFile(Object.keys(files)[0] || "");
+        saveFS();
+        renderFileTree();
+    }
+}
+function ctxRun() {
+    if(ctxTarget) { openFile(ctxTarget); runActiveFile(); }
+}
+
+// --- Terminal / Shell ---
+const termLog = document.getElementById('term-log');
+const shellInput = document.getElementById('shell-input');
+const shellCwd = document.getElementById('shell-cwd');
+
+shellInput.addEventListener('keydown', (e) => {
+    if(e.key === 'Enter') {
+        const cmd = shellInput.value.trim();
+        shellInput.value = "";
+        execShell(cmd);
+    }
+});
+
+function termPrint(msg, color) {
+    const div = document.createElement('div');
+    div.textContent = msg;
+    if(color) div.style.color = color;
+    termLog.appendChild(div);
+    document.getElementById('output').scrollTop = document.getElementById('output').scrollHeight;
+}
+
+function execShell(cmdStr) {
+    termPrint(`user@pypanel:${cwd}$ ${cmdStr}`, '#aaa');
+    if(!cmdStr) return;
+
+    const args = cmdStr.split(' ');
+    const cmd = args[0];
+
+    switch(cmd) {
+        case 'ls':
+            const prefix = cwd === '~' ? '' : cwd + '/';
+            const hits = new Set();
+            Object.keys(files).forEach(f => {
+                if(cwd === '~' || f.startsWith(prefix)) {
+                    // 直下のファイル/フォルダのみ表示
+                    const sub = f.replace(prefix, '');
+                    const root = sub.split('/')[0];
+                    hits.add(root);
+                }
+            });
+            termPrint(Array.from(hits).join('  '), '#fff');
+            break;
             
-            log("🐹 Loading Go WASM...", 'log-info');
-            // GoのWASM実行には 'wasm_exec.js' が必要
-            // ここでは擬似的にロード完了とします
-            await new Promise(r => setTimeout(r, 1500)); 
-            goWasmReady = true;
-        }
-        
-        log("Running Go Code...", 'log-info');
-        // ブラウザでのGoコンパイルはバックエンドが必要なため、
-        // ここでは「実行環境が正しくロードされた」ことを示します。
-        log("Output:\n🐹 Hello from Go WASM!\nComputation running...");
-        setRunning(false);
+        case 'cd':
+            const target = args[1];
+            if(!target || target === '~') { cwd = '~'; }
+            else if(target === '..') {
+                if(cwd !== '~') cwd = cwd.split('/').slice(0, -1).join('/') || '~';
+            } else {
+                // 簡易チェック: そのフォルダを含むファイルがあるか
+                const newPath = cwd === '~' ? target : `${cwd}/${target}`;
+                const exists = Object.keys(files).some(f => f.startsWith(newPath + '/'));
+                if(exists) cwd = newPath;
+                else termPrint(`cd: ${target}: No such directory`, 'red');
+            }
+            shellCwd.textContent = cwd + '/';
+            break;
 
-    // --- PYTHON (Pyodide) ---
-    } else if (mode === 'python') {
-        outputDiv.style.display = 'block'; previewFrame.style.display = 'none';
-        
-        if (!pyWorker) {
-            log("🐍 Loading Python Engine...", 'log-info');
-            pyWorker = new Worker('py-worker.js');
-            pyWorker.onmessage = (e) => {
-                const { type, text, results, error } = e.data;
-                if (type === 'ready') updateStatus("Ready (Python)", "#4ec9b0");
-                else if (type === 'stdout') log(text);
-                else if (type === 'results') { if(results && results!=='None') log("<= "+results,'log-info'); setRunning(false); }
-                else if (type === 'error') { log("❌ "+error, 'log-err'); setRunning(false); }
-            };
-        }
-        
-        // ファイル同期
-        const fileData = {}; 
-        for(let f in files) fileData[f] = files[f].content;
-        
-        pyWorker.postMessage({ cmd: 'run', code: code, files: fileData });
+        case 'cat':
+            const fPath = resolvePath(args[1]);
+            if(files[fPath]) termPrint(files[fPath].content);
+            else termPrint(`cat: ${args[1]}: No such file`, 'red');
+            break;
+            
+        case 'rm':
+            const rmPath = resolvePath(args[1]);
+            if(files[rmPath]) {
+                delete files[rmPath];
+                saveFS(); renderFileTree();
+                termPrint(`Removed ${args[1]}`);
+            } else termPrint(`rm: ${args[1]}: Not found`, 'red');
+            break;
 
-    // --- WEB ---
-    } else if (mode === 'web') {
-        outputDiv.style.display = 'none'; previewFrame.style.display = 'block';
-        previewFrame.srcdoc = code;
-        setRunning(false);
+        case 'touch':
+            const tPath = resolvePath(args[1]);
+            if(!files[tPath]) {
+                files[tPath] = { content: "", mode: getLangFromExt(tPath) };
+                saveFS(); renderFileTree();
+            }
+            break;
+            
+        case 'mkdir':
+            const dPath = resolvePath(args[1]);
+            files[`${dPath}/.keep`] = { content: "", mode: "text" };
+            saveFS(); renderFileTree();
+            break;
+
+        case 'python':
+        case 'python3':
+            runFile(args[1], 'python');
+            break;
+
+        case 'node':
+            runFile(args[1], 'node');
+            break;
+
+        case 'npm':
+            if(args[1] === 'install' || args[1] === 'i') {
+                const pkg = args[2];
+                if(pkg) {
+                    termPrint(`npm: Installing ${pkg}...`, 'cyan');
+                    setTimeout(() => {
+                        termPrint(`✅ ${pkg} installed (simulated).`, 'green');
+                        termPrint(`Use: import ... from 'https://esm.sh/${pkg}'`, 'yellow');
+                    }, 800);
+                } else termPrint('Usage: npm install <package>', 'orange');
+            } else {
+                termPrint('npm: Only install command is simulated.', 'orange');
+            }
+            break;
+
+        case 'clear':
+            termLog.innerHTML = "";
+            break;
+            
+        case 'help':
+            termPrint("Commands: ls, cd, cat, rm, touch, mkdir, python, node, npm, clear");
+            break;
+            
+        default:
+            termPrint(`bash: ${cmd}: command not found`, 'red');
     }
 }
 
-function loadScript(src) {
-    return new Promise((resolve, reject) => {
-        const s = document.createElement('script');
-        s.src = src;
-        s.onload = resolve;
-        s.onerror = reject;
-        document.head.appendChild(s);
-    });
+function resolvePath(p) {
+    if(!p) return "";
+    if(cwd === '~') return p;
+    return `${cwd}/${p}`;
 }
 
-// Utils
-function log(msg, cls) {
-    const d = document.createElement('div');
-    d.textContent = msg;
-    if(cls) d.className = cls;
-    outputDiv.appendChild(d);
-    outputDiv.scrollTop = outputDiv.scrollHeight;
+// --- Running Code ---
+function runActiveFile() {
+    if(!files[currentPath]) return;
+    const mode = files[currentPath].mode;
+    
+    // Extension based execution
+    if(mode === 'python') runFile(currentPath, 'python');
+    else if(mode === 'javascript') runFile(currentPath, 'node'); // JSはNode扱い
+    else if(mode === 'ruby') runFile(currentPath, 'ruby');
+    else if(mode === 'html') runFile(currentPath, 'web');
+    else if(mode === 'java') runFile(currentPath, 'java');
+    else if(mode === 'go') runFile(currentPath, 'go');
+    else {
+        termPrint(`Cannot execute ${currentPath} (Type: ${mode})`, 'orange');
+    }
 }
-function clearOutput() { outputDiv.innerHTML = ""; if(previewFrame.contentWindow) previewFrame.srcdoc = ""; }
-function setRunning(b) {
-    runBtn.style.display = b ? 'none' : 'inline-flex';
-    stopBtn.style.display = b ? 'inline-flex' : 'none';
-    statusSpan.textContent = b ? "Running..." : "Ready";
+
+function runFile(path, runtime) {
+    if(!path) path = currentPath;
+    const file = files[path];
+    if(!file) { termPrint(`File not found: ${path}`, 'red'); return; }
+    
+    document.getElementById('terminal-pane').style.display = 'flex';
+    document.getElementById('output').style.display = 'block';
+    document.getElementById('preview-frame').style.display = 'none';
+
+    termPrint(`> Running ${path} with ${runtime}...`, '#4ec9b0');
+
+    if(runtime === 'web') {
+        document.getElementById('output').style.display = 'none';
+        const pf = document.getElementById('preview-frame');
+        pf.style.display = 'block';
+        pf.srcdoc = file.content; // 単体プレビュー
+    }
+    else if(runtime === 'python') {
+        if(!pyWorker) initPyWorker();
+        // 全ファイル同期
+        const fileData = {}; 
+        for(let f in files) fileData[f] = files[f].content;
+        
+        // 簡易パッケージ検知
+        const packages = [];
+        if(file.content.includes('numpy')) packages.push('numpy');
+        if(file.content.includes('pandas')) packages.push('pandas');
+
+        pyWorker.postMessage({ cmd: 'run', code: file.content, files: fileData, packages: packages });
+    }
+    else if(runtime === 'node') {
+        // ES Modules Dynamic Import
+        const blob = new Blob([file.content], { type: 'text/javascript' });
+        const url = URL.createObjectURL(blob);
+        const originalLog = console.log;
+        console.log = (...args) => termPrint(args.join(' '));
+        import(url).then(() => {
+            console.log = originalLog;
+            termPrint('[Done]', '#666');
+        }).catch(e => {
+            console.log = originalLog;
+            termPrint(`Error: ${e.message}`, 'red');
+        });
+    }
+    else if(runtime === 'ruby') {
+        // Ruby WASM (簡易実装: scriptタグでロードしてeval)
+        termPrint("Ruby runtime loading...", 'gray');
+        // 本来はWorkerでやるべきだが簡易化
+        // 実際の実装はPyPanel Ultra Pro参照。ここではデモとしてLog出力
+        setTimeout(() => termPrint(`(Ruby Output Simulation)\nHello from ${path}`, 'white'), 500);
+    }
+    else {
+        termPrint(`Runtime ${runtime} requires explicit download (see Pro version).`, 'orange');
+    }
 }
-function updateStatus(t, c) { statusSpan.textContent = t; statusSpan.style.color = c; }
-function openPopup() { popupOverlay.style.display = 'flex'; popupFrame.srcdoc = editor.getValue(); }
+
+// --- Workers ---
+let pyWorker = null;
+function initPyWorker() {
+    pyWorker = new Worker('py-worker.js');
+    pyWorker.onmessage = (e) => {
+        const d = e.data;
+        if(d.type === 'stdout') termPrint(d.text);
+        if(d.type === 'results' && d.results !== 'None') termPrint('<= ' + d.results, 'cyan');
+        if(d.type === 'error') termPrint(d.error, 'red');
+    };
+}
+
+// --- Popup (Combined) ---
+function openPopup() {
+    let html = files['index.html']?.content || "<h1>No index.html</h1>";
+    // 単純な結合ロジック
+    Object.keys(files).forEach(p => {
+        if(p.endsWith('.css')) html = html.replace('</head>', `<style>/* ${p} */\n${files[p].content}</style></head>`);
+        if(p.endsWith('.js')) html = html.replace('</body>', `<script>/* ${p} */\n${files[p].content}</script></body>`);
+    });
+    popupOverlay.style.display = 'flex';
+    popupFrame.srcdoc = html;
+}
 function closePopup() { popupOverlay.style.display = 'none'; }
+
+// Resizer
+const resizer = document.getElementById('resizer');
+resizer.addEventListener('mousedown', (e) => {
+    document.onmousemove = (ev) => {
+        const h = window.innerHeight - ev.clientY;
+        if(h > 30) document.getElementById('terminal-pane').style.height = h + 'px';
+        editor.layout();
+    };
+    document.onmouseup = () => { document.onmousemove = null; };
+});
+
+function toggleSidebar() {
+    const sb = document.getElementById('sidebar');
+    sb.classList.toggle('collapsed');
+    setTimeout(() => editor.layout(), 200);
+}
+function toggleTerminal() {
+    const tp = document.getElementById('terminal-pane');
+    tp.style.display = tp.style.display === 'none' ? 'flex' : 'none';
+    editor.layout();
+}
