@@ -1,19 +1,16 @@
-const CACHE_NAME = 'pypanel-ultra-v1';
+const CACHE_NAME = 'pypanel-monaco-v1';
 const ASSETS = [
     './',
     './index.html',
     './main.js',
     './py-worker.js',
+    // Pyodide Core
     'https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js',
     'https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.asm.js',
     'https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.asm.wasm',
     'https://cdn.jsdelivr.net/pyodide/v0.24.1/full/python_stdlib.zip',
-    'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.2/ace.js',
-    'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.2/ext-language_tools.js',
-    'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.2/theme-vibrant_ink.js',
-    'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.2/mode-python.js',
-    'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.2/mode-javascript.js',
-    'https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.2/mode-html.js'
+    // Monaco Loader
+    'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.js'
 ];
 
 self.addEventListener('install', (e) => {
@@ -21,5 +18,18 @@ self.addEventListener('install', (e) => {
 });
 
 self.addEventListener('fetch', (e) => {
-    e.respondWith(caches.match(e.request).then(res => res || fetch(e.request)));
+    // Monaco Editorなどの動的ロードされるファイルもキャッシュする戦略
+    e.respondWith(
+        caches.match(e.request).then(res => {
+            return res || fetch(e.request).then(response => {
+                // 外部CDNもキャッシュに保存
+                return caches.open(CACHE_NAME).then(cache => {
+                    if (e.request.url.startsWith('http') && e.request.method === 'GET') {
+                        cache.put(e.request, response.clone());
+                    }
+                    return response;
+                });
+            });
+        })
+    );
 });
