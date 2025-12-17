@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>PyPanel Ultra Pro</title>
+    <title>PyPanel Ultra Shell</title>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;600&display=swap" rel="stylesheet">
     <style>
         :root {
@@ -25,9 +25,9 @@
         }
         h1 { margin: 0; font-size: 14px; color: #fff; font-weight: 600; display: flex; align-items: center; gap: 8px; }
         .tool-group { display: flex; gap: 8px; align-items: center; }
-        select { background: #444; color: #fff; border: 1px solid #555; padding: 4px; border-radius: 3px; font-size: 12px; outline: none; cursor: pointer; }
+        
         button { 
-            cursor: pointer; border: none; padding: 5px 10px; border-radius: 3px; font-size: 12px; font-weight: 600; color: white; transition: 0.2s; display: flex; align-items: center; gap: 5px;
+            cursor: pointer; border: none; padding: 5px 12px; border-radius: 3px; font-size: 12px; font-weight: 600; color: white; transition: 0.2s; display: flex; align-items: center; gap: 5px;
         }
         #runBtn { background: #2ea043; } #runBtn:hover { background: #3fb950; }
         #stopBtn { background: #da3633; display: none; } #stopBtn:hover { background: #f85149; }
@@ -37,22 +37,25 @@
         /* Workspace */
         #workspace { flex: 1; display: flex; overflow: hidden; position: relative; }
 
-        /* Sidebar */
+        /* Sidebar (Explorer) */
         #sidebar { 
-            width: 220px; background: var(--bg-sidebar); border-right: 1px solid var(--border); display: flex; flex-direction: column;
-            transition: width 0.1s ease, transform 0.2s; flex-shrink: 0;
+            width: 240px; background: var(--bg-sidebar); border-right: 1px solid var(--border); display: flex; flex-direction: column;
+            transition: width 0.1s ease; flex-shrink: 0; user-select: none;
         }
         #sidebar.collapsed { width: 0; border: none; overflow: hidden; }
         .sidebar-header { padding: 10px; font-size: 11px; font-weight: bold; color: #888; display: flex; justify-content: space-between; align-items: center; }
-        #file-list { flex: 1; overflow-y: auto; }
-        .file-item { 
-            padding: 6px 15px; cursor: pointer; font-size: 13px; display: flex; align-items: center; gap: 6px; color: #ccc; border-left: 2px solid transparent;
-        }
-        .file-item:hover { background: #2a2d2e; }
-        .file-item.active { background: #37373d; color: white; border-left: 2px solid var(--accent); }
-        .file-item .del-btn { margin-left: auto; display: none; color: #888; }
-        .file-item:hover .del-btn { display: block; } .file-item .del-btn:hover { color: #f44336; }
-
+        
+        #file-tree { flex: 1; overflow-y: auto; padding-bottom: 10px; }
+        
+        /* Tree Items */
+        .tree-node { padding: 4px 0; cursor: pointer; font-size: 13px; color: #ccc; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .tree-node:hover { background: #2a2d2e; }
+        .tree-node.active { background: #37373d; color: white; border-left: 2px solid var(--accent); }
+        .tree-content { display: flex; align-items: center; gap: 5px; padding-right: 10px; }
+        .tree-indent { display: inline-block; }
+        .folder-icon { color: #dcb67a; font-weight: bold; }
+        .file-icon { color: #ccc; }
+        
         /* Editor Area */
         #editor-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; height: 100%; }
         #tabs { height: 35px; background: #2d2d2d; display: flex; align-items: center; overflow-x: auto; flex-shrink: 0; border-bottom: 1px solid #111; }
@@ -64,51 +67,53 @@
         #editor-container { flex: 1; overflow: hidden; position: relative; }
 
         /* Resizer */
-        .resizer { height: 6px; background: #2d2d2d; cursor: row-resize; border-top: 1px solid #333; z-index: 10; flex-shrink: 0; transition: background 0.2s; }
-        .resizer:hover { background: var(--accent); }
+        .resizer { height: 6px; background: #2d2d2d; cursor: row-resize; border-top: 1px solid #333; z-index: 10; flex-shrink: 0; }
 
-        /* Terminal */
+        /* Terminal Shell */
         #terminal-pane { 
-            height: 200px; background: var(--bg-terminal); display: flex; flex-direction: column; min-height: 0; flex-shrink: 0;
-            transition: height 0.1s;
+            height: 250px; background: var(--bg-terminal); display: flex; flex-direction: column; min-height: 0; flex-shrink: 0;
+            border-top: 1px solid #333;
         }
-        #terminal-pane.collapsed { height: 30px !important; overflow: hidden; }
-        
         #term-header { 
             padding: 0 10px; height: 30px; background: #222; font-size: 11px; color: #888; display: flex; justify-content: space-between; align-items: center; 
-            border-bottom: 1px solid #333; flex-shrink: 0; cursor: pointer; user-select: none;
+            border-bottom: 1px solid #333; flex-shrink: 0; cursor: pointer;
         }
-        #term-header:hover { color: #fff; background: #333; }
-        
         #output { 
-            flex: 1; padding: 10px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.5; color: #d4d4d4; white-space: pre-wrap; 
-            user-select: text; cursor: text;
+            flex: 1; padding: 10px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.5; color: #d4d4d4; 
+            cursor: text;
         }
+        /* Shell Input */
+        .shell-line { display: flex; margin-top: 5px; }
+        .shell-prompt { color: #2ea043; margin-right: 8px; font-weight: bold; }
+        .shell-path { color: #4ec9b0; margin-right: 8px; }
+        #shell-input { 
+            flex: 1; background: transparent; border: none; color: #fff; font-family: 'JetBrains Mono', monospace; font-size: 13px; outline: none; 
+        }
+
         #preview-frame { flex: 1; border: none; background: white; display: none; }
 
         /* Overlays */
-        #popup-overlay, #confirm-overlay {
+        #popup-overlay {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(0,0,0,0.6); backdrop-filter: blur(2px);
             z-index: 2000; display: none; justify-content: center; align-items: center;
         }
-        .popup-window, .confirm-box {
+        .popup-window {
             background: #252526; color: #fff; border-radius: 8px; overflow: hidden; 
-            box-shadow: 0 20px 50px rgba(0,0,0,0.5); border: 1px solid #444;
+            box-shadow: 0 20px 50px rgba(0,0,0,0.5); border: 1px solid #444; width: 90%; height: 90%; display: flex; flex-direction: column;
         }
-        .popup-window { width: 90%; height: 90%; display: flex; flex-direction: column; }
         .popup-header { background: #333; padding: 8px 15px; display: flex; justify-content: space-between; font-weight: bold; }
         .popup-close-btn { background: #f44336; border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; }
         #popup-content-frame { flex: 1; border: none; background: #fff; }
 
-        .confirm-box { width: 320px; padding: 20px; text-align: center; }
-        .confirm-box h3 { margin-top: 0; color: #4ec9b0; }
-        .confirm-box p { font-size: 13px; color: #ccc; line-height: 1.6; }
-        .confirm-actions { display: flex; justify-content: center; gap: 10px; margin-top: 20px; }
-        .btn-ok { background: #007acc; padding: 6px 16px; }
-        .btn-cancel { background: #444; padding: 6px 16px; }
+        /* Context Menu (Right Click) */
+        #context-menu {
+            position: absolute; background: #252526; border: 1px solid #444; box-shadow: 2px 2px 10px rgba(0,0,0,0.5);
+            display: none; z-index: 3000; padding: 5px 0; border-radius: 4px; min-width: 120px;
+        }
+        .ctx-item { padding: 6px 15px; font-size: 12px; cursor: pointer; color: #eee; }
+        .ctx-item:hover { background: #007acc; color: #fff; }
 
-        /* Mobile */
         @media (max-width: 768px) {
             #sidebar { position: absolute; height: 100%; z-index: 50; transform: translateX(-100%); width: 250px; box-shadow: 2px 0 10px rgba(0,0,0,0.5); }
             #sidebar.open { transform: translateX(0); width: 250px !important; }
@@ -122,52 +127,61 @@
 <div id="toolbar">
     <div class="tool-group">
         <button class="icon-btn" onclick="toggleSidebar()" title="Toggle Explorer">📂</button>
-        <h1>🐍 <span>PyPanel Ultra</span></h1>
-        <select id="langSelect" onchange="changeLanguage()">
-            <option value="python">Python (Pyodide)</option>
-            <option value="ruby">Ruby (WASM)</option>
-            <option value="java">Java (CheerpJ)</option>
-            <option value="go">Go (WASM)</option>
-            <option value="node">Node.js (Web)</option>
-            <option value="web">Web (HTML/JS)</option>
-        </select>
+        <h1>🐍 <span>PyPanel Ultra Shell</span></h1>
     </div>
     <div class="tool-group">
         <span id="status" style="font-size: 11px; color: #666;">Ready</span>
         <button id="popBtn" onclick="openPopup()" title="Web Preview Popup">❐ Pop</button>
-        <button id="runBtn" onclick="runCode()">▶ Run</button>
+        <button id="runBtn" onclick="runActiveFile()">▶ Run</button>
         <button id="stopBtn" onclick="stopCode()">⏹ Stop</button>
         <button class="icon-btn" onclick="toggleTerminal()" title="Toggle Terminal">💻</button>
     </div>
 </div>
 
 <div id="workspace">
+    <!-- Explorer -->
     <div id="sidebar">
         <div class="sidebar-header">
             <span>EXPLORER</span>
-            <span style="cursor:pointer; color:#fff;" onclick="addNewFile()" title="New File">+</span>
+            <div style="display:flex; gap:5px;">
+                <span style="cursor:pointer; color:#fff;" onclick="createNew('folder')" title="New Folder">📁</span>
+                <span style="cursor:pointer; color:#fff;" onclick="createNew('file')" title="New File">+</span>
+            </div>
         </div>
-        <div id="file-list"></div>
+        <div id="file-tree"></div>
     </div>
 
+    <!-- Main Pane -->
     <div id="editor-pane">
         <div id="tabs"></div>
         <div id="editor-container"></div>
         
         <div class="resizer" id="resizer"></div>
         
+        <!-- Terminal -->
         <div id="terminal-pane">
             <div id="term-header" ondblclick="toggleTerminal()">
-                <span>TERMINAL / OUTPUT</span>
-                <div style="display:flex; gap:10px;">
-                    <span style="cursor:pointer; color:#007acc;" onclick="clearOutput()">CLEAR</span>
-                    <span style="cursor:pointer;" onclick="toggleTerminal()">_</span>
+                <span>TERMINAL</span>
+                <span style="cursor:pointer; color:#007acc;" onclick="term.clear()">CLEAR</span>
+            </div>
+            <div id="output" onclick="document.getElementById('shell-input').focus()">
+                <div id="term-log"></div>
+                <div class="shell-line">
+                    <span class="shell-prompt">user@pypanel:</span>
+                    <span class="shell-path" id="shell-cwd">~/</span>
+                    <span style="margin-right:5px;">$</span>
+                    <input type="text" id="shell-input" autocomplete="off" spellcheck="false">
                 </div>
             </div>
-            <div id="output"></div>
             <iframe id="preview-frame"></iframe>
         </div>
     </div>
+</div>
+
+<!-- Context Menu -->
+<div id="context-menu">
+    <div class="ctx-item" onclick="ctxDelete()">削除 (Delete)</div>
+    <div class="ctx-item" onclick="ctxRun()">実行 (Run)</div>
 </div>
 
 <!-- Popup Preview -->
@@ -178,18 +192,6 @@
             <button class="popup-close-btn" onclick="closePopup()">×</button>
         </div>
         <iframe id="popup-content-frame" sandbox="allow-scripts allow-modals allow-same-origin"></iframe>
-    </div>
-</div>
-
-<!-- Download Confirmation Modal -->
-<div id="confirm-overlay">
-    <div class="confirm-box">
-        <h3>ランタイムのダウンロード</h3>
-        <p id="confirm-msg">この機能を使用するには、約 XX MB のデータをダウンロードする必要があります。続行しますか？</p>
-        <div class="confirm-actions">
-            <button class="btn-cancel" onclick="closeConfirm(false)">キャンセル</button>
-            <button class="btn-ok" onclick="closeConfirm(true)">ダウンロードして実行</button>
-        </div>
     </div>
 </div>
 
