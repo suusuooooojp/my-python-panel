@@ -3,89 +3,164 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>PyPanel Pro</title>
+    <title>PyPanel Ultra Environment</title>
+    <!-- Google Fonts for Icons & Code -->
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;600&display=swap" rel="stylesheet">
     <style>
-        body { margin: 0; display: flex; flex-direction: column; height: 100vh; background: #272822; color: #f8f8f2; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
-
-        /* ツールバー */
-        #toolbar { padding: 8px 12px; background: #1e1e1e; display: flex; gap: 10px; border-bottom: 1px solid #444; align-items: center; flex-wrap: wrap; }
-        
-        h1 { margin: 0; font-size: 16px; font-weight: bold; color: #66d9ef; margin-right: auto; display: flex; align-items: center; gap: 5px; }
-        
-        select { background: #333; color: white; border: 1px solid #555; padding: 5px; border-radius: 4px; font-size: 13px; outline: none; cursor: pointer; }
-        
-        button { cursor: pointer; border: none; padding: 6px 14px; border-radius: 4px; font-size: 13px; font-weight: bold; transition: background 0.2s; color: white; display: flex; align-items: center; gap: 4px; }
-        button#runBtn { background: #4CAF50; }
-        button#runBtn:hover { background: #45a049; }
-        button#stopBtn { background: #f44336; display: none; }
-        button#stopBtn:hover { background: #d32f2f; }
-        
-        /* エディタと出力 */
-        #main-area { flex: 1; display: flex; flex-direction: column; position: relative; }
-        #editor { flex: 2; font-size: 14px; }
-        
-        #output-container { flex: 1; display: flex; flex-direction: column; background: #111; border-top: 1px solid #444; min-height: 150px; position: relative; }
-        #output-header { padding: 5px 10px; background: #222; font-size: 11px; color: #aaa; border-bottom: 1px solid #333; display: flex; justify-content: space-between; }
-        
-        /* ログ出力エリア */
-        #output { flex: 1; padding: 10px; overflow-y: auto; white-space: pre-wrap; font-family: monospace; font-size: 13px; color: #ddd; -webkit-overflow-scrolling: touch; display: block; }
-        
-        /* Webプレビュー用エリア (初期は非表示) */
-        #preview-frame { flex: 1; width: 100%; border: none; background: #fff; display: none; }
-
-        /* 全角スペース警告マーカー (オレンジ) */
-        .zenkaku-space-marker {
-            position: absolute;
-            background: rgba(255, 165, 0, 0.6);
-            border-bottom: 2px solid red;
-            z-index: 20;
+        :root {
+            --bg-dark: #1e1e1e;
+            --bg-sidebar: #252526;
+            --bg-editor: #1e1e1e;
+            --bg-terminal: #1e1e1e;
+            --accent: #007acc;
+            --text-main: #cccccc;
+            --border: #333333;
+            --highlight: #2d2d2d;
         }
 
-        /* スマホ調整 */
-        @media (max-width: 600px) {
+        body { margin: 0; display: flex; flex-direction: column; height: 100vh; background: var(--bg-dark); color: var(--text-main); font-family: 'Inter', sans-serif; overflow: hidden; }
+
+        /* ヘッダー */
+        #toolbar { 
+            height: 40px; background: #333333; display: flex; align-items: center; padding: 0 15px; border-bottom: 1px solid #111; 
+            justify-content: space-between; flex-shrink: 0;
+        }
+        h1 { margin: 0; font-size: 15px; color: #fff; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+        
+        .tool-group { display: flex; gap: 10px; align-items: center; }
+        
+        select { background: #444; color: #fff; border: 1px solid #555; padding: 4px 8px; border-radius: 3px; font-size: 12px; outline: none; }
+        
+        button { 
+            cursor: pointer; border: none; padding: 5px 12px; border-radius: 3px; font-size: 12px; font-weight: 600; color: white; transition: 0.2s; display: flex; align-items: center; gap: 5px;
+        }
+        #runBtn { background: #2ea043; } #runBtn:hover { background: #3fb950; }
+        #stopBtn { background: #da3633; display: none; } #stopBtn:hover { background: #f85149; }
+        .icon-btn { background: transparent; color: #aaa; padding: 4px; } .icon-btn:hover { color: #fff; background: #444; }
+
+        /* メインコンテナ */
+        #workspace { flex: 1; display: flex; overflow: hidden; }
+
+        /* サイドバー (ファイルエクスプローラー) */
+        #sidebar { 
+            width: 200px; background: var(--bg-sidebar); border-right: 1px solid var(--border); display: flex; flex-direction: column;
+            transition: width 0.1s;
+        }
+        .sidebar-header { padding: 10px; font-size: 11px; font-weight: bold; text-transform: uppercase; color: #888; display: flex; justify-content: space-between; }
+        #file-list { flex: 1; overflow-y: auto; padding: 5px 0; }
+        .file-item { 
+            padding: 6px 15px; cursor: pointer; font-size: 13px; display: flex; align-items: center; gap: 6px; color: #ccc;
+        }
+        .file-item:hover { background: #2a2d2e; }
+        .file-item.active { background: #37373d; color: white; border-left: 2px solid var(--accent); }
+        .file-item .del-btn { margin-left: auto; display: none; color: #888; }
+        .file-item:hover .del-btn { display: block; }
+        .file-item .del-btn:hover { color: #f44336; }
+
+        /* エディタエリア */
+        #editor-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+        
+        /* タブバー */
+        #tabs { height: 35px; background: #2d2d2d; display: flex; align-items: center; overflow-x: auto; }
+        .tab { 
+            padding: 0 15px; height: 100%; display: flex; align-items: center; font-size: 13px; color: #888; background: #2d2d2d; cursor: pointer; border-right: 1px solid #252526; min-width: 80px; justify-content: center;
+        }
+        .tab.active { background: var(--bg-editor); color: #fff; border-top: 1px solid var(--accent); }
+        
+        #editor { flex: 1; font-family: 'JetBrains Mono', monospace; font-size: 14px; }
+
+        /* リサイザー */
+        .resizer { height: 6px; background: #2d2d2d; cursor: row-resize; border-top: 1px solid #333; border-bottom: 1px solid #333; z-index: 10; transition: background 0.2s; }
+        .resizer:hover { background: var(--accent); }
+
+        /* ターミナル */
+        #terminal-pane { 
+            height: 200px; background: var(--bg-terminal); display: flex; flex-direction: column; min-height: 50px; 
+        }
+        #term-header { padding: 5px 10px; background: #222; font-size: 11px; color: #888; display: flex; justify-content: space-between; border-bottom: 1px solid #333; }
+        #output { 
+            flex: 1; padding: 10px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.5; color: #d4d4d4; white-space: pre-wrap; 
+        }
+        
+        /* Webプレビュー */
+        #preview-frame { flex: 1; border: none; background: white; display: none; }
+
+        /* 装飾クラス */
+        .log-err { color: #f48771; }
+        .log-info { color: #9cdcfe; }
+        .log-warn { color: #cca700; }
+        .ace_error-line { position: absolute; background: rgba(255, 0, 0, 0.2); width: 100% !important; left: 0 !important; }
+        .zenkaku-space { position: absolute; background: rgba(255, 165, 0, 0.4); border-bottom: 2px solid orange; z-index: 20; }
+        .log-img { max-width: 100%; border: 1px solid #444; margin-top: 5px; border-radius: 4px; }
+
+        /* スマホ対応 */
+        @media (max-width: 768px) {
+            #sidebar { display: none; width: 0; position: absolute; height: 100%; z-index: 100; box-shadow: 2px 0 5px rgba(0,0,0,0.5); }
+            #sidebar.open { display: flex; width: 220px; }
             h1 span { display: none; }
-            #toolbar { padding: 5px; }
-            button { padding: 6px 10px; }
+            #toolbar { padding: 0 10px; }
         }
     </style>
 </head>
 <body>
-    <div id="toolbar">
-        <h1>🐍 <span>PyPanel Pro</span></h1>
-        
-        <!-- 言語選択: ここで Web(HTML/CSS/JS) を選べばまとめて書けます -->
+
+<div id="toolbar">
+    <div class="tool-group">
+        <button class="icon-btn" onclick="toggleSidebar()" title="Toggle Sidebar">📂</button>
+        <h1>🐍 <span>PyPanel Ultra</span></h1>
         <select id="langSelect" onchange="changeLanguage()">
-            <option value="web">Web (HTML+CSS+JS)</option>
-            <option value="python">Python</option>
-            <option value="typescript">TypeScript</option>
-            <option value="javascript">JavaScript (Node.js風)</option>
-            <option value="java">Java</option>
-            <option value="golang">Go</option>
+            <option value="python">Python (Multi-File)</option>
+            <option value="web">Web (HTML/JS)</option>
+            <option value="javascript">Node.js Style</option>
+            <option value="markdown">Markdown</option>
         </select>
-
-        <span id="status" style="font-size: 11px; color: #aaa; margin: 0 5px;">待機中</span>
-        
-        <button id="runBtn" onclick="runCode()">▶ 実行</button>
-        <button id="stopBtn" onclick="stopCode()">⏹ 停止</button>
     </div>
+    <div class="tool-group">
+        <span id="status" style="font-size: 11px; color: #666;">Ready</span>
+        <button id="fmtBtn" class="icon-btn" onclick="formatCode()" title="Format Code">✨</button>
+        <button id="dlBtn" class="icon-btn" onclick="downloadFile()" title="Download">⬇</button>
+        <button id="runBtn" onclick="runCode()">▶ Run</button>
+        <button id="stopBtn" onclick="stopCode()">⏹ Stop</button>
+    </div>
+</div>
 
-    <div id="main-area">
-        <div id="editor"></div>
-        <div id="output-container">
-            <div id="output-header">
-                <span id="output-title">実行ログ</span>
-                <span style="cursor:pointer; color: #66d9ef;" onclick="clearOutput()">[クリア]</span>
-            </div>
-            <!-- テキストログ出力用 -->
-            <div id="output"></div>
-            <!-- Webプレビュー用 -->
-            <iframe id="preview-frame" sandbox="allow-scripts allow-modals"></iframe>
+<div id="workspace">
+    <!-- サイドバー -->
+    <div id="sidebar">
+        <div class="sidebar-header">
+            <span>EXPLORER</span>
+            <span style="cursor:pointer; color:#fff;" onclick="addNewFile()" title="New File">+</span>
+        </div>
+        <div id="file-list">
+            <!-- JSで生成 -->
         </div>
     </div>
 
-    <!-- ライブラリ -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.2/ace.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.2/ext-language_tools.js"></script>
-    <script src="main.js"></script>
+    <!-- エディタエリア -->
+    <div id="editor-pane">
+        <div id="tabs">
+            <!-- JSで生成 -->
+        </div>
+        <div id="editor"></div>
+        
+        <!-- リサイザー -->
+        <div class="resizer" id="resizer"></div>
+
+        <!-- ターミナル -->
+        <div id="terminal-pane">
+            <div id="term-header">
+                <span>TERMINAL / OUTPUT</span>
+                <span style="cursor:pointer; color:#007acc;" onclick="clearOutput()">CLEAR</span>
+            </div>
+            <div id="output"></div>
+            <iframe id="preview-frame"></iframe>
+        </div>
+    </div>
+</div>
+
+<!-- Scripts -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.2/ace.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.2/ext-language_tools.js"></script>
+<script src="main.js"></script>
 </body>
 </html>
