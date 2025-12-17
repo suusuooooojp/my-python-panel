@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>PyPanel Ultra Environment</title>
-    <!-- Google Fonts for Icons & Code -->
+    <title>PyPanel Ultra (VS Code Engine)</title>
+    <!-- Fonts -->
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;600&display=swap" rel="stylesheet">
     <style>
         :root {
@@ -15,36 +15,34 @@
             --accent: #007acc;
             --text-main: #cccccc;
             --border: #333333;
-            --highlight: #2d2d2d;
         }
 
         body { margin: 0; display: flex; flex-direction: column; height: 100vh; background: var(--bg-dark); color: var(--text-main); font-family: 'Inter', sans-serif; overflow: hidden; }
 
-        /* ヘッダー */
+        /* Toolbar */
         #toolbar { 
             height: 40px; background: #333333; display: flex; align-items: center; padding: 0 15px; border-bottom: 1px solid #111; 
-            justify-content: space-between; flex-shrink: 0;
+            justify-content: space-between; flex-shrink: 0; z-index: 100;
         }
         h1 { margin: 0; font-size: 15px; color: #fff; font-weight: 600; display: flex; align-items: center; gap: 8px; }
         
         .tool-group { display: flex; gap: 10px; align-items: center; }
-        
         select { background: #444; color: #fff; border: 1px solid #555; padding: 4px 8px; border-radius: 3px; font-size: 12px; outline: none; }
-        
         button { 
             cursor: pointer; border: none; padding: 5px 12px; border-radius: 3px; font-size: 12px; font-weight: 600; color: white; transition: 0.2s; display: flex; align-items: center; gap: 5px;
         }
         #runBtn { background: #2ea043; } #runBtn:hover { background: #3fb950; }
         #stopBtn { background: #da3633; display: none; } #stopBtn:hover { background: #f85149; }
+        #popBtn { background: #007acc; } #popBtn:hover { background: #0062a3; }
         .icon-btn { background: transparent; color: #aaa; padding: 4px; } .icon-btn:hover { color: #fff; background: #444; }
 
-        /* メインコンテナ */
-        #workspace { flex: 1; display: flex; overflow: hidden; }
+        /* Workspace */
+        #workspace { flex: 1; display: flex; overflow: hidden; position: relative; }
 
-        /* サイドバー (ファイルエクスプローラー) */
+        /* Sidebar */
         #sidebar { 
             width: 200px; background: var(--bg-sidebar); border-right: 1px solid var(--border); display: flex; flex-direction: column;
-            transition: width 0.1s;
+            transition: transform 0.2s ease;
         }
         .sidebar-header { padding: 10px; font-size: 11px; font-weight: bold; text-transform: uppercase; color: #888; display: flex; justify-content: space-between; }
         #file-list { flex: 1; overflow-y: auto; padding: 5px 0; }
@@ -54,51 +52,61 @@
         .file-item:hover { background: #2a2d2e; }
         .file-item.active { background: #37373d; color: white; border-left: 2px solid var(--accent); }
         .file-item .del-btn { margin-left: auto; display: none; color: #888; }
-        .file-item:hover .del-btn { display: block; }
-        .file-item .del-btn:hover { color: #f44336; }
+        .file-item:hover .del-btn { display: block; } .file-item .del-btn:hover { color: #f44336; }
 
-        /* エディタエリア */
+        /* Editor Area */
         #editor-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; }
-        
-        /* タブバー */
-        #tabs { height: 35px; background: #2d2d2d; display: flex; align-items: center; overflow-x: auto; }
+        #tabs { height: 35px; background: #2d2d2d; display: flex; align-items: center; overflow-x: auto; flex-shrink: 0; }
         .tab { 
             padding: 0 15px; height: 100%; display: flex; align-items: center; font-size: 13px; color: #888; background: #2d2d2d; cursor: pointer; border-right: 1px solid #252526; min-width: 80px; justify-content: center;
         }
         .tab.active { background: var(--bg-editor); color: #fff; border-top: 1px solid var(--accent); }
         
-        #editor { flex: 1; font-family: 'JetBrains Mono', monospace; font-size: 14px; }
+        /* Monaco Editor Container */
+        #editor-container { flex: 1; overflow: hidden; }
 
-        /* リサイザー */
-        .resizer { height: 6px; background: #2d2d2d; cursor: row-resize; border-top: 1px solid #333; border-bottom: 1px solid #333; z-index: 10; transition: background 0.2s; }
-        .resizer:hover { background: var(--accent); }
+        .resizer { height: 6px; background: #2d2d2d; cursor: row-resize; border-top: 1px solid #333; border-bottom: 1px solid #333; z-index: 10; flex-shrink: 0; }
 
-        /* ターミナル */
+        /* Terminal */
         #terminal-pane { 
             height: 200px; background: var(--bg-terminal); display: flex; flex-direction: column; min-height: 50px; 
         }
-        #term-header { padding: 5px 10px; background: #222; font-size: 11px; color: #888; display: flex; justify-content: space-between; border-bottom: 1px solid #333; }
+        #term-header { padding: 5px 10px; background: #222; font-size: 11px; color: #888; display: flex; justify-content: space-between; border-bottom: 1px solid #333; flex-shrink: 0; }
         #output { 
             flex: 1; padding: 10px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.5; color: #d4d4d4; white-space: pre-wrap; 
         }
-        
-        /* Webプレビュー */
         #preview-frame { flex: 1; border: none; background: white; display: none; }
 
-        /* 装飾クラス */
-        .log-err { color: #f48771; }
-        .log-info { color: #9cdcfe; }
-        .log-warn { color: #cca700; }
-        .ace_error-line { position: absolute; background: rgba(255, 0, 0, 0.2); width: 100% !important; left: 0 !important; }
-        .zenkaku-space { position: absolute; background: rgba(255, 165, 0, 0.4); border-bottom: 2px solid orange; z-index: 20; }
-        .log-img { max-width: 100%; border: 1px solid #444; margin-top: 5px; border-radius: 4px; }
+        /* Popup */
+        #popup-overlay {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.6); backdrop-filter: blur(2px);
+            z-index: 1000; display: none; justify-content: center; align-items: center;
+        }
+        .popup-window {
+            width: 90%; height: 90%; background: #fff; display: flex; flex-direction: column;
+            border-radius: 8px; overflow: hidden; box-shadow: 0 20px 50px rgba(0,0,0,0.5);
+            animation: popIn 0.2s ease-out;
+        }
+        .popup-header {
+            background: #333; color: white; padding: 8px 15px; display: flex; justify-content: space-between; align-items: center; font-size: 14px; font-weight: bold;
+        }
+        .popup-close-btn { background: #f44336; border: none; color: white; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; }
+        #popup-content-frame { flex: 1; border: none; background: #fff; }
+        @keyframes popIn { from { transform: scale(0.95); opacity: 0; } to { transform: scale(1); opacity: 1; } }
 
-        /* スマホ対応 */
+        /* Logs & Decoration */
+        .log-err { color: #f48771; } .log-info { color: #9cdcfe; }
+        .log-img { max-width: 100%; border: 1px solid #444; margin-top: 5px; border-radius: 4px; }
+        /* Monaco Editor Customizations are in JS */
+        
+        /* Mobile */
         @media (max-width: 768px) {
-            #sidebar { display: none; width: 0; position: absolute; height: 100%; z-index: 100; box-shadow: 2px 0 5px rgba(0,0,0,0.5); }
-            #sidebar.open { display: flex; width: 220px; }
+            #sidebar { position: absolute; height: 100%; z-index: 50; transform: translateX(-100%); width: 240px; box-shadow: 2px 0 10px rgba(0,0,0,0.5); }
+            #sidebar.open { transform: translateX(0); }
             h1 span { display: none; }
-            #toolbar { padding: 0 10px; }
+            #toolbar { padding: 0 8px; gap: 5px; }
+            select { max-width: 100px; }
         }
     </style>
 </head>
@@ -109,47 +117,37 @@
         <button class="icon-btn" onclick="toggleSidebar()" title="Toggle Sidebar">📂</button>
         <h1>🐍 <span>PyPanel Ultra</span></h1>
         <select id="langSelect" onchange="changeLanguage()">
-            <option value="python">Python (Multi-File)</option>
+            <option value="python">Python</option>
             <option value="web">Web (HTML/JS)</option>
-            <option value="javascript">Node.js Style</option>
-            <option value="markdown">Markdown</option>
+            <option value="javascript">JavaScript</option>
         </select>
     </div>
     <div class="tool-group">
-        <span id="status" style="font-size: 11px; color: #666;">Ready</span>
-        <button id="fmtBtn" class="icon-btn" onclick="formatCode()" title="Format Code">✨</button>
-        <button id="dlBtn" class="icon-btn" onclick="downloadFile()" title="Download">⬇</button>
+        <span id="status" style="font-size: 11px; color: #666;">Init...</span>
+        <button id="popBtn" onclick="openPopup()" title="Open Popup">❐ Pop</button>
         <button id="runBtn" onclick="runCode()">▶ Run</button>
         <button id="stopBtn" onclick="stopCode()">⏹ Stop</button>
     </div>
 </div>
 
 <div id="workspace">
-    <!-- サイドバー -->
     <div id="sidebar">
         <div class="sidebar-header">
             <span>EXPLORER</span>
-            <span style="cursor:pointer; color:#fff;" onclick="addNewFile()" title="New File">+</span>
+            <span style="cursor:pointer; color:#fff;" onclick="addNewFile()">+</span>
         </div>
-        <div id="file-list">
-            <!-- JSで生成 -->
-        </div>
+        <div id="file-list"></div>
     </div>
 
-    <!-- エディタエリア -->
     <div id="editor-pane">
-        <div id="tabs">
-            <!-- JSで生成 -->
-        </div>
-        <div id="editor"></div>
+        <div id="tabs"></div>
+        <!-- Monaco Editor Container -->
+        <div id="editor-container"></div>
         
-        <!-- リサイザー -->
         <div class="resizer" id="resizer"></div>
-
-        <!-- ターミナル -->
         <div id="terminal-pane">
             <div id="term-header">
-                <span>TERMINAL / OUTPUT</span>
+                <span>TERMINAL</span>
                 <span style="cursor:pointer; color:#007acc;" onclick="clearOutput()">CLEAR</span>
             </div>
             <div id="output"></div>
@@ -158,9 +156,18 @@
     </div>
 </div>
 
-<!-- Scripts -->
-<script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.2/ace.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/ace/1.32.2/ext-language_tools.js"></script>
+<div id="popup-overlay">
+    <div class="popup-window">
+        <div class="popup-header">
+            <span>WEB PREVIEW</span>
+            <button class="popup-close-btn" onclick="closePopup()">×</button>
+        </div>
+        <iframe id="popup-content-frame" sandbox="allow-scripts allow-modals allow-same-origin"></iframe>
+    </div>
+</div>
+
+<!-- Monaco Loader -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.js"></script>
 <script src="main.js"></script>
 </body>
 </html>
