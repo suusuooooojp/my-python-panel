@@ -1,34 +1,72 @@
 // --- Service Worker ---
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 
-// --- System Monitor (Status Bar) ---
+// --- System Monitor (Slowed Down) ---
+let lastMonitorUpdate = 0;
 let lastLoop = Date.now();
 function updateMonitor() {
     const now = Date.now();
     const delta = (now - lastLoop);
     lastLoop = now;
     
-    // CPU Load Estimate (FPS based)
-    const fps = Math.round(1000 / (delta || 1));
-    let load = Math.max(0, 100 - (fps / 60 * 100)); 
-    if(load > 100) load = 100;
-    
-    const cpuEl = document.getElementById('cpu-val');
-    if(cpuEl) cpuEl.innerText = Math.round(load) + "%";
-    
-    // Memory (Safe Check)
-    const memEl = document.getElementById('mem-val');
-    if(memEl) {
-        if(performance && performance.memory) {
-            memEl.innerText = Math.round(performance.memory.usedJSHeapSize / 1024 / 1024) + "MB";
-        } else {
-            memEl.innerText = "N/A";
+    // Update every 2 seconds
+    if (now - lastMonitorUpdate > 2000) {
+        lastMonitorUpdate = now;
+        
+        // Pseudo CPU Load
+        const fps = Math.round(1000 / (delta || 1));
+        let load = Math.max(0, 100 - (fps / 60 * 100)); 
+        if(load > 100) load = 100;
+        
+        const cpuEl = document.getElementById('cpu-val');
+        if(cpuEl) cpuEl.innerText = Math.round(load) + "%";
+        
+        const memEl = document.getElementById('mem-val');
+        if(memEl) {
+            if(performance && performance.memory) {
+                memEl.innerText = Math.round(performance.memory.usedJSHeapSize / 1024 / 1024) + "MB";
+            } else {
+                memEl.innerText = "N/A";
+            }
         }
     }
-
     requestAnimationFrame(updateMonitor);
 }
 requestAnimationFrame(updateMonitor);
+
+// --- Zoom Logic ---
+let currentZoom = 1.0;
+function changeZoom(delta) {
+    currentZoom += delta;
+    if(currentZoom < 0.5) currentZoom = 0.5;
+    if(currentZoom > 2.0) currentZoom = 2.0;
+    const wrap = document.getElementById('app-wrapper');
+    wrap.style.transform = `scale(${currentZoom})`;
+    wrap.style.width = `${100/currentZoom}%`;
+    wrap.style.height = `${100/currentZoom}%`;
+    if(editor) editor.layout();
+}
+
+// --- Layout Logic ---
+let isRightPreview = false;
+function toggleLayout() {
+    isRightPreview = !isRightPreview;
+    const rightPane = document.getElementById('right-preview-pane');
+    const resizeV = document.getElementById('resizer-v');
+    const bottomPrevTab = document.getElementById('tab-prev');
+    
+    if (isRightPreview) {
+        rightPane.classList.add('show');
+        resizeV.style.display = 'flex';
+        bottomPrevTab.style.display = 'none';
+        switchPanel('terminal'); // Force terminal on bottom
+    } else {
+        rightPane.classList.remove('show');
+        resizeV.style.display = 'none';
+        bottomPrevTab.style.display = 'flex';
+    }
+    if(editor) editor.layout();
+}
 
 // --- Monaco Setup ---
 require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' }});
@@ -38,6 +76,7 @@ let editor;
 let files = {};
 let currentPath = "";
 let expandedFolders = new Set();
+let dragSrc = null;
 
 const DEFAULT_FILES = {
     'main.py': { content: `import sys\nimport pypanel\n\nprint(f"🐍 Python {sys.version.split()[0]}")\npypanel.dom_write("out", "<h2>Hello from Python!</h2>")`, mode: 'python' },
@@ -68,6 +107,13 @@ require(['vs/editor/editor.main'], function() {
     });
 
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, runProject);
+    
+    // Init folders
+    Object.keys(files).forEach(p => {
+        const parts = p.split('/');
+        if(parts.length > 1) expandedFolders.add(parts[0]);
+    });
+
     renderTree();
     updateTabs();
     updateFileCount();
@@ -77,18 +123,183 @@ function updateFileCount() {
     document.getElementById('file-count').innerText = Object.keys(files).length;
 }
 
-// --- Python Worker ---
+// --- File System (Nested + D&D) ---
+function renderTree() {
+    const tree = document.getElementById('file-tree');
+    tree.innerHTML = "";
+    
+    const structure = {};
+    Object.keys(files).sort().forEach(path => {
+        const parts = path.split('/');
+        let current = structure;
+        parts.forEach((part, i) => {
+            if (!current[part]) {
+                current[part] = (i === parts.length - 1) ? { __file: true, path: path } : {};
+            }
+            current = current[part];
+        });
+    });
+
+    function buildDom(obj, container, fullPathPrefix = "") {
+        Object.keys(obj).sort((a,b) => {
+            const aIsFile = obj[a].__file, bIsFile = obj[b].__file;
+            if (aIsFile === bIsFile) return a.localeCompare(b);
+            return aIsFile ? 1 : -1;
+        }).forEach(key => {
+            if (key === '__file' || key === 'path') return;
+            const item = obj[key];
+            const isFile = item.__file;
+            const fullPath = fullPathPrefix ? `${fullPathPrefix}/${key}` : key;
+            
+            const node = document.createElement('div');
+            node.className = 'tree-node';
+            
+            const content = document.createElement('div');
+            content.className = `tree-content ${isFile && item.path === currentPath ? 'active' : ''}`;
+            content.draggable = true;
+            
+            // Icon
+            let iconHtml = '';
+            if (isFile) {
+                iconHtml = `<span class="file-spacer" style="width:15px;display:inline-block"></span>${getIcon(key)}`;
+            } else {
+                const isOpen = expandedFolders.has(fullPath);
+                iconHtml = `<span class="arrow ${isOpen ? 'down' : ''}">▶</span>📁`;
+            }
+            
+            // Menu
+            const menuBtn = document.createElement('span');
+            menuBtn.className = 'tree-menu-btn';
+            menuBtn.innerHTML = '⋮';
+            menuBtn.onclick = (e) => { e.stopPropagation(); showCtx(e, fullPath, isFile); };
+
+            content.innerHTML = `${iconHtml}<span class="tree-name">${key}</span>`;
+            content.appendChild(menuBtn);
+            
+            content.onclick = (e) => {
+                e.stopPropagation();
+                if(isFile) openFile(item.path); else toggleFolder(fullPath);
+            };
+            content.oncontextmenu = (e) => showCtx(e, fullPath, isFile);
+            
+            // D&D
+            content.ondragstart = (e) => { dragSrc = fullPath; e.dataTransfer.effectAllowed = 'move'; };
+            content.ondragover = (e) => { e.preventDefault(); if(!isFile) content.classList.add('drag-over'); };
+            content.ondragleave = (e) => { content.classList.remove('drag-over'); };
+            content.ondrop = (e) => {
+                e.preventDefault(); content.classList.remove('drag-over');
+                if(!dragSrc || dragSrc === fullPath) return;
+                moveEntry(dragSrc, fullPath + "/" + dragSrc.split('/').pop());
+                renderTree();
+            };
+
+            node.appendChild(content);
+
+            if (!isFile) {
+                const children = document.createElement('div');
+                children.className = `tree-children ${expandedFolders.has(fullPath) ? 'open' : ''}`;
+                buildDom(item, children, fullPath);
+                node.appendChild(children);
+            }
+            container.appendChild(node);
+        });
+    }
+    buildDom(structure, tree);
+}
+
+function toggleFolder(p) { if(expandedFolders.has(p)) expandedFolders.delete(p); else expandedFolders.add(p); renderTree(); }
+function openFile(p) {
+    currentPath = p;
+    monaco.editor.setModelLanguage(editor.getModel(), getLang(p));
+    editor.setValue(files[p].content);
+    renderTree(); updateTabs();
+}
+
+// --- Menu ---
+const ctxMenu = document.getElementById('context-menu');
+let ctxTarget = null, ctxIsFile = true;
+function showCtx(e, p, f) {
+    e.preventDefault(); ctxTarget = p; ctxIsFile = f;
+    let x = e.pageX, y = e.pageY;
+    ctxMenu.style.display = 'block';
+    const r = ctxMenu.getBoundingClientRect();
+    if(x+r.width > window.innerWidth) x = window.innerWidth - r.width - 10;
+    if(y+r.height > window.innerHeight) y = window.innerHeight - r.height - 10;
+    ctxMenu.style.left = x+'px'; ctxMenu.style.top = y+'px';
+}
+document.addEventListener('click', () => ctxMenu.style.display = 'none');
+if(editor) editor.onMouseDown(() => ctxMenu.style.display = 'none');
+
+function ctxDelete() {
+    if(confirm("Delete?")) {
+        if(ctxIsFile) delete files[ctxTarget];
+        else Object.keys(files).forEach(k => { if(k.startsWith(ctxTarget+'/')) delete files[k]; });
+        if(!files[currentPath]) currentPath = Object.keys(files)[0] || "";
+        if(currentPath) openFile(currentPath); else editor.setValue("");
+        saveFiles(); renderTree();
+    }
+}
+function ctxRename() {
+    const n = prompt("New name:", ctxTarget.split('/').pop());
+    if(!n) return;
+    const dir = ctxTarget.substring(0, ctxTarget.lastIndexOf('/'));
+    const np = dir ? `${dir}/${n}` : n;
+    if(np === ctxTarget || files[np]) return;
+    moveEntry(ctxTarget, np);
+    renderTree();
+}
+function ctxMove() {
+    const dest = prompt("Move to folder (empty for root):", "");
+    if(dest === null) return;
+    const d = dest.trim();
+    const fn = ctxTarget.split('/').pop();
+    const np = d ? `${d}/${fn}` : fn;
+    moveEntry(ctxTarget, np);
+    renderTree();
+}
+function moveEntry(oldP, newP) {
+    if(files[oldP]) {
+        files[newP] = files[oldP]; delete files[oldP];
+        if(currentPath === oldP) { currentPath = newP; updateTabs(); }
+    } else {
+        Object.keys(files).forEach(k => {
+            if(k.startsWith(oldP+'/')) {
+                const suffix = k.substring(oldP.length);
+                files[newP+suffix] = files[k]; delete files[k];
+                if(currentPath === k) { currentPath = newP+suffix; updateTabs(); }
+            }
+        });
+    }
+    saveFiles();
+}
+function ctxRun() { if(ctxIsFile) { openFile(ctxTarget); runProject(); } }
+
+function createNewFile() {
+    const p = prompt("Filename:", ""); if(!p || files[p]) return;
+    files[p] = { content: "", mode: getLang(p) };
+    saveFiles(); renderTree(); updateFileCount(); openFile(p);
+}
+function createNewFolder() {
+    const p = prompt("Folder:", "folder"); if(!p) return;
+    files[`${p}/.keep`] = { content: "", mode: "plaintext" };
+    expandedFolders.add(p); saveFiles(); renderTree(); updateFileCount();
+}
+
+function getLang(p) { return p.endsWith('.py')?'python':(p.endsWith('.js')?'javascript':(p.endsWith('.html')?'html':(p.endsWith('.css')?'css':'plaintext'))); }
+function getIcon(p) { return p.endsWith('.py')?'🐍':(p.endsWith('.js')?'📜':(p.endsWith('.html')?'🌐':(p.endsWith('.css')?'🎨':'📄'))); }
+function updateTabs() { document.getElementById('tabs').innerHTML = `<div class="tab active">${currentPath}</div>`; }
+
+// --- Runner ---
 let pyWorker = null;
 function initPyWorker() {
     const status = document.getElementById('py-status-text');
     status.innerText = "Loading...";
-    
     try {
         pyWorker = new Worker('py-worker.js');
         pyWorker.onmessage = (e) => {
             const d = e.data;
             if(d.type === 'stdout') log(d.text);
-            else if(d.type === 'ready') { status.innerText = "Ready"; log("Python Ready", '#4caf50'); }
+            else if(d.type === 'ready') { status.innerText = "Ready"; }
             else if(d.type === 'dom_op') handleDomOp(d);
             else if(d.type === 'results') document.getElementById('runBtn').disabled = false;
             else if(d.type === 'error') { log(d.error, 'red'); document.getElementById('runBtn').disabled = false; }
@@ -107,7 +318,6 @@ function handleDomOp(data) {
     }
 }
 
-// --- Runner ---
 async function runProject() {
     const btn = document.getElementById('runBtn');
     btn.disabled = true;
@@ -120,59 +330,25 @@ async function runProject() {
 
     if (currentPath.endsWith('.py')) {
         switchPanel('terminal');
-        setTimeout(runPython, 500);
+        setTimeout(() => {
+            const d = {};
+            for(let f in files) d[f] = files[f].content;
+            pyWorker.postMessage({ cmd: 'run', code: files[currentPath].content, files: d });
+        }, 500);
     } else {
         if (!isRightPreview) switchPanel('preview');
         btn.disabled = false;
     }
 }
 
-function runPython() {
-    const d = {};
-    for(let f in files) d[f] = files[f].content;
-    pyWorker.postMessage({ cmd: 'run', code: files[currentPath].content, files: d });
-}
-
 function bundleFiles(htmlPath) {
     let html = files[htmlPath].content;
-    // Simple Bundler
     html = html.replace(/<link\s+href=["']([^"']+)["'][^>]*>/g, (m, h) => files[h] ? `<style>${files[h].content}</style>` : m);
     html = html.replace(/<script\s+src=["']([^"']+)["'][^>]*><\/script>/g, (m, s) => files[s] ? `<script>${files[s].content}</script>` : m);
     return html;
 }
 
-// --- Layout Logic ---
-let isRightPreview = false;
-function toggleLayout() {
-    isRightPreview = !isRightPreview;
-    const right = document.getElementById('right-preview-pane');
-    const rV = document.getElementById('resizer-v');
-    
-    if (isRightPreview) {
-        right.classList.add('show');
-        rV.style.display = 'flex';
-        switchPanel('terminal'); // Ensure bottom is terminal
-    } else {
-        right.classList.remove('show');
-        rV.style.display = 'none';
-    }
-    if(editor) editor.layout();
-}
-
-// --- Zoom ---
-let zoom = 1.0;
-function changeZoom(d) {
-    zoom += d;
-    if(zoom < 0.5) zoom = 0.5;
-    if(zoom > 2) zoom = 2;
-    const wrap = document.getElementById('app-wrapper');
-    wrap.style.transform = `scale(${zoom})`;
-    wrap.style.width = `${100/zoom}%`;
-    wrap.style.height = `${100/zoom}%`;
-    if(editor) editor.layout();
-}
-
-// --- UI Utils ---
+// --- Utils ---
 const termLog = document.getElementById('term-log');
 const shellIn = document.getElementById('shell-input');
 shellIn.addEventListener('keydown', e => {
@@ -185,6 +361,8 @@ function log(msg, color) {
     document.getElementById('output').scrollTop = 99999;
 }
 function clearOutput() { termLog.innerHTML = ""; }
+function resetAll() { if(confirm("Reset?")) { localStorage.removeItem('pypanel_files'); location.reload(); } }
+
 function switchPanel(p) {
     document.getElementById('tab-term').className = p === 'terminal' ? 'panel-tab active' : 'panel-tab';
     document.getElementById('tab-prev').className = p === 'preview' ? 'panel-tab active' : 'panel-tab';
@@ -197,7 +375,7 @@ function toggleSidebar() {
     setTimeout(() => editor.layout(), 250);
 }
 
-// --- Resizers (Fixed) ---
+// --- Resizers ---
 const rH = document.getElementById('resizer-h');
 const bPanel = document.getElementById('bottom-panel');
 rH.addEventListener('mousedown', initDragH);
@@ -212,7 +390,7 @@ function initDragH(e) {
 }
 function doDragH(e) {
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    const h = window.innerHeight - clientY - 24; // 24 is status bar height
+    const h = window.innerHeight - clientY - 24;
     if(h > 30) { bPanel.style.height = h + 'px'; editor.layout(); }
 }
 function stopDragH() {
@@ -234,26 +412,3 @@ function doDragV(e) {
     if(w > 50) { rPane.style.width = w + 'px'; editor.layout(); }
 }
 function stopDragV() { document.removeEventListener('mousemove', doDragV); document.removeEventListener('mouseup', stopDragV); }
-
-// --- File System ---
-function renderTree() {
-    const tree = document.getElementById('file-tree');
-    tree.innerHTML = "";
-    // Simplified flat list for robustness, or recursive if needed
-    // Using flat list with indentation visual
-    Object.keys(files).sort().forEach(path => {
-        const div = document.createElement('div');
-        div.className = "tree-content " + (path === currentPath ? "active" : "");
-        div.innerHTML = `<span class="tree-name">${path}</span>`;
-        div.onclick = () => { currentPath = path; editor.setValue(files[path].content); renderTree(); updateTabs(); };
-        tree.appendChild(div);
-    });
-}
-function getLang(p) { return p.endsWith('.py')?'python':(p.endsWith('.js')?'javascript':(p.endsWith('.html')?'html':'plaintext')); }
-function createNewFile() {
-    const p = prompt("Name:"); if(!p || files[p]) return;
-    files[p] = { content: "", mode: getLang(p) };
-    localStorage.setItem('pypanel_files', JSON.stringify(files));
-    renderTree(); updateFileCount();
-}
-function createNewFolder() { alert("Use 'folder/file.ext' to create folders."); }
