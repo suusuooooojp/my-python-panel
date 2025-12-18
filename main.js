@@ -1,7 +1,7 @@
 // --- Service Worker ---
 if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
 
-// --- Loading Logic ---
+// --- Loading & Status Logic ---
 function updateProgress(percent, text) {
     const bar = document.getElementById('progress-bar');
     const txt = document.getElementById('loading-text');
@@ -9,20 +9,76 @@ function updateProgress(percent, text) {
     if (txt) txt.innerText = text;
 }
 
-// Timeout Logic for Loading
-const loadingTimeout = setTimeout(() => {
-    const btn = document.getElementById('retry-btn');
-    if (btn) {
-        btn.style.display = 'block';
-        updateProgress(90, "Connection slow...");
+// Timeout Logic: 20秒経過してもロード画面ならリトライボタンを表示
+setTimeout(() => {
+    const screen = document.getElementById('loading-screen');
+    if (screen && screen.style.display !== 'none') {
+        document.getElementById('retry-area').style.display = 'block';
+        updateProgress(95, "Connection slow? Waiting...");
     }
-}, 10000); // 10秒待ってもロードしなかったらリトライボタンを表示
+}, 20000);
+
+// Status Bar Update
+function setPyStatus(state) {
+    const dot = document.getElementById('py-dot');
+    const txt = document.getElementById('py-text');
+    dot.className = 'status-dot';
+    
+    if (state === 'loading') {
+        dot.classList.add('loading');
+        txt.innerText = "Py Loading...";
+    } else if (state === 'ready') {
+        dot.classList.add('ready');
+        txt.innerText = "Py Ready";
+    } else if (state === 'error') {
+        dot.classList.add('error');
+        txt.innerText = "Py Error";
+    }
+}
+
+// --- Python Engine Pre-loading ---
+// エディタロードと並行してPythonを読み込む
+let pyWorker = null;
+let isPyReady = false;
+
+function initPyWorker() {
+    setPyStatus('loading');
+    pyWorker = new Worker('py-worker.js');
+    
+    pyWorker.onmessage = (e) => {
+        const d = e.data;
+        if (d.type === 'ready') {
+            isPyReady = true;
+            setPyStatus('ready');
+            log("🐍 Python Engine Ready", '#4caf50');
+        } else if (d.type === 'stdout') {
+            log(d.text);
+        } else if (d.type === 'results') {
+            log("<= " + d.results, '#4ec9b0');
+            resetRunBtn();
+        } else if (d.type === 'error') {
+            log("Error: " + d.error, 'red');
+            if(!isPyReady) setPyStatus('error');
+            resetRunBtn();
+        }
+    };
+    
+    pyWorker.onerror = (e) => {
+        console.error("Worker Error:", e);
+        setPyStatus('error');
+        log("Python Worker Failed to Load", 'red');
+    };
+}
+
+// ページ読み込みと同時にPython初期化開始
+initPyWorker();
+
 
 // --- Monaco Setup ---
-updateProgress(10, "Loading Config...");
+updateProgress(20, "Loading Editor Core...");
 require.config({ 
     paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' },
-    waitSeconds: 20 // RequireJS timeout
+    waitSeconds: 30
 });
 
 window.MonacoEnvironment = {
@@ -39,28 +95,25 @@ let currentPath = "";
 let expandedFolders = new Set();
 let zenkakuDecorations = [];
 
-// Sample Data
 const DEFAULT_FILES = {
-    'main.py': { content: `import sys\nimport random\n\n# Try typing 'pri' or 'def' for autocomplete\nprint(f"Python {sys.version.split()[0]}")\nprint(f"Random: {random.randint(1, 100)}")`, mode: 'python' },
-    'index.html': { content: `<!DOCTYPE html>\n<html>\n<head>\n  <link rel="stylesheet" href="css/style.css">\n</head>\n<body>\n  <div class="box">\n    <h1>PyPanel IDE</h1>\n    <p>Loading Fixed!</p>\n    <button onclick="test()">Click Me</button>\n  </div>\n  <script src="js/main.js"></script>\n</body>\n</html>`, mode: 'html' },
+    'main.py': { content: `import sys\nimport random\n\n# Python 3.11 Ready\nprint(f"Python {sys.version.split()[0]} Running")\nprint(f"Random: {random.randint(1, 100)}")`, mode: 'python' },
+    'index.html': { content: `<!DOCTYPE html>\n<html>\n<head>\n  <link rel="stylesheet" href="css/style.css">\n</head>\n<body>\n  <div class="box">\n    <h1>PyPanel</h1>\n    <p>Everything is Ready!</p>\n    <button onclick="test()">Click Me</button>\n  </div>\n  <script src="js/main.js"></script>\n</body>\n</html>`, mode: 'html' },
     'css/style.css': { content: `body { background: #222; color: #fff; font-family: sans-serif; text-align: center; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }\n.box { border: 1px solid #444; padding: 20px; border-radius: 8px; background: #2a2a2a; }`, mode: 'css' },
     'js/main.js': { content: `function test() { alert("JS Works!"); }`, mode: 'javascript' }
 };
 
-// --- Initialization ---
 try {
     files = JSON.parse(localStorage.getItem('pypanel_files')) || DEFAULT_FILES;
 } catch(e) { files = DEFAULT_FILES; }
 
-updateProgress(30, "Downloading Editor...");
+// --- Editor Init ---
+updateProgress(50, "Starting Monaco...");
 
 require(['vs/editor/editor.main'], function() {
-    updateProgress(70, "Initializing Editor...");
+    updateProgress(80, "Configuring Environment...");
     
-    // --- Python Autocomplete Registration ---
     registerPythonCompletion();
 
-    // Editor Create
     currentPath = Object.keys(files)[0] || "main.py";
     editor = monaco.editor.create(document.getElementById('editor-container'), {
         value: files[currentPath] ? files[currentPath].content : "",
@@ -75,15 +128,13 @@ require(['vs/editor/editor.main'], function() {
         wordWrap: "on"
     });
 
-    // Loading Finished
-    updateProgress(100, "Ready!");
-    clearTimeout(loadingTimeout);
+    // Loading Finish
+    updateProgress(100, "Done!");
     setTimeout(() => {
         document.getElementById('loading-screen').style.opacity = '0';
         setTimeout(() => document.getElementById('loading-screen').style.display = 'none', 500);
     }, 500);
 
-    // Event Listeners
     editor.onDidChangeModelContent(() => {
         if(files[currentPath]) {
             files[currentPath].content = editor.getValue();
@@ -96,7 +147,6 @@ require(['vs/editor/editor.main'], function() {
         showToast("Executing...");
         runProject();
     });
-    
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
         saveFiles();
         showToast("Saved!");
@@ -110,57 +160,28 @@ require(['vs/editor/editor.main'], function() {
     renderTree();
     updateTabs();
     updateZenkaku();
+    
 }, function(err) {
-    // Error Handler for RequireJS
-    console.error(err);
-    const btn = document.getElementById('retry-btn');
-    if(btn) {
-        btn.style.display = 'block';
-        btn.innerText = "Error loading resources. Click to Retry.";
-    }
+    console.error("Monaco Load Error:", err);
+    updateProgress(90, "Editor Load Failed");
+    document.getElementById('retry-area').style.display = 'block';
 });
 
-// --- Python IntelliSense Implementation ---
+// --- Python Completion ---
 function registerPythonCompletion() {
     monaco.languages.registerCompletionItemProvider('python', {
         provideCompletionItems: function(model, position) {
             const suggestions = [
-                // Keywords
-                ...['import', 'from', 'def', 'class', 'return', 'if', 'else', 'elif', 'while', 'for', 'in', 'try', 'except', 'finally', 'with', 'as', 'pass', 'break', 'continue', 'lambda', 'global', 'nonlocal', 'True', 'False', 'None'].map(k => ({
+                ...['import', 'from', 'def', 'class', 'return', 'if', 'else', 'elif', 'while', 'for', 'in', 'try', 'except', 'print', 'len', 'range', 'open', 'sys', 'os', 'math', 'numpy', 'pandas'].map(k => ({
                     label: k, kind: monaco.languages.CompletionItemKind.Keyword, insertText: k
-                })),
-                // Built-ins
-                ...['print', 'len', 'range', 'open', 'type', 'str', 'int', 'float', 'list', 'dict', 'set', 'tuple', 'bool', 'enumerate', 'zip', 'map', 'filter', 'sum', 'min', 'max', 'abs', 'round', 'super', 'isinstance'].map(k => ({
-                    label: k, kind: monaco.languages.CompletionItemKind.Function, insertText: k
-                })),
-                // Common Libs
-                ...['sys', 'os', 'math', 'random', 'datetime', 'json', 're', 'time', 'numpy', 'pandas', 'matplotlib'].map(k => ({
-                    label: k, kind: monaco.languages.CompletionItemKind.Module, insertText: k
-                })),
-                // Snippets
-                {
-                    label: 'ifmain',
-                    kind: monaco.languages.CompletionItemKind.Snippet,
-                    insertText: 'if __name__ == "__main__":\n    ${1:pass}',
-                    insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-                    documentation: 'Main entry point'
-                },
-                {
-                    label: 'def',
-                    kind: monaco.languages.CompletionItemKind.Snippet,
-                    insertText: 'def ${1:func_name}(${2:args}):\n    ${3:pass}',
-                    insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet
-                }
+                }))
             ];
             return { suggestions: suggestions };
         }
     });
 }
 
-function saveFiles() {
-    localStorage.setItem('pypanel_files', JSON.stringify(files));
-}
-
+function saveFiles() { localStorage.setItem('pypanel_files', JSON.stringify(files)); }
 function showToast(msg) {
     const t = document.getElementById('toast');
     t.innerText = msg;
@@ -193,9 +214,7 @@ function renderTree() {
         const parts = path.split('/');
         let current = structure;
         parts.forEach((part, i) => {
-            if (!current[part]) {
-                current[part] = (i === parts.length - 1) ? { __file: true, path: path } : {};
-            }
+            if (!current[part]) current[part] = (i === parts.length - 1) ? { __file: true, path: path } : {};
             current = current[part];
         });
     });
@@ -353,9 +372,8 @@ function moveEntry(oldP, newP) {
 }
 function ctxRun() { if(ctxIsFile) { openFile(ctxTarget); runProject(); } }
 
-// --- Create ---
 function createNewFile() {
-    let path = prompt("ファイル名 (例: js/app.js):", "");
+    let path = prompt("ファイル名 (例: src/test.py):", "");
     if(!path) return;
     if(files[path]) { alert("既に存在します"); return; }
     files[path] = { content: "", mode: getLang(path) };
@@ -373,7 +391,6 @@ function createNewFolder() {
     showToast("Created");
 }
 
-// --- Utils ---
 function getLang(p) {
     if(p.endsWith('.py')) return 'python';
     if(p.endsWith('.js')) return 'javascript';
@@ -400,7 +417,14 @@ async function runProject() {
 
     if (currentPath.endsWith('.py')) {
         switchPanel('terminal');
-        runPython();
+        // Python Workerが準備できていなければ待つなどの処理も可だが、
+        // InitPyWorkerがすでに走っているので状態をチェック
+        if (!isPyReady) {
+            log("⏳ Waiting for Python Engine...", 'orange');
+            // Workerは裏で走っているのでReadyメッセージ待ち
+        } else {
+            runPython();
+        }
         return;
     }
     let entry = files['index.html'] ? 'index.html' : (currentPath.endsWith('.html') ? currentPath : null);
@@ -429,18 +453,7 @@ function bundleFiles(htmlPath) {
     return html;
 }
 
-let pyWorker = null;
 function runPython() {
-    if(!pyWorker) {
-        log("Python Engine Loading...", 'gray');
-        pyWorker = new Worker('py-worker.js');
-        pyWorker.onmessage = e => {
-            const d = e.data;
-            if(d.type==='stdout') log(d.text);
-            if(d.type==='results') { log("<= " + d.results, '#4ec9b0'); resetRunBtn(); }
-            if(d.type==='error') { log("Error: "+d.error, 'red'); resetRunBtn(); }
-        };
-    }
     const fileData = {};
     for(let f in files) fileData[f] = files[f].content;
     pyWorker.postMessage({ cmd: 'run', code: files[currentPath].content, files: fileData });
