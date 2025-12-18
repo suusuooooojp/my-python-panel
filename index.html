@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>PyPanel Ultimate</title>
+    <title>PyPanel Ultra Ultimate</title>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;600&display=swap" rel="stylesheet">
     <style>
         :root {
@@ -54,16 +54,26 @@
         .sidebar-header { padding: 10px; font-size: 11px; font-weight: bold; color: #888; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; }
         #file-tree { flex: 1; overflow-y: auto; padding: 5px 0; }
         
+        /* Tree Items (Nested) */
         .tree-node { color: #ccc; font-size: 13px; display: flex; flex-direction: column; }
-        .tree-content { display: flex; align-items: center; padding: 6px 10px; cursor: pointer; border: 1px solid transparent; }
+        .tree-content { display: flex; align-items: center; padding: 4px 10px; cursor: pointer; border: 1px solid transparent; }
         .tree-content:hover { background: #2a2d2e; }
         .tree-content.active { background: #37373d; color: white; border-left: 2px solid var(--accent); }
+        /* D&D Visuals */
+        .tree-content.drag-over { background: #444; border: 1px dashed #007acc; }
+        
         .tree-name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; margin-left: 5px; }
+        .tree-menu-btn { padding: 0 8px; color: #888; font-weight: bold; cursor: pointer; visibility: hidden; }
+        .tree-content:hover .tree-menu-btn { visibility: visible; }
+
         .tree-children { padding-left: 12px; display: none; border-left: 1px solid #444; margin-left: 10px; }
         .tree-children.open { display: block; }
-        
-        /* Center Area */
+        .arrow { font-size: 10px; color: #999; display: inline-block; width: 10px; transition: transform 0.1s; }
+        .arrow.down { transform: rotate(90deg); }
+
+        /* Center Area (Editor + Right Preview) */
         #center-area { flex: 1; display: flex; min-width: 0; height: 100%; position: relative; }
+        
         #editor-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; height: 100%; }
         #tabs { height: 35px; background: #2d2d2d; display: flex; align-items: center; overflow-x: auto; flex-shrink: 0; border-bottom: 1px solid #111; }
         .tab { padding: 0 15px; height: 100%; display: flex; align-items: center; font-size: 13px; color: #888; background: #2d2d2d; cursor: pointer; border-right: 1px solid #1e1e1e; min-width: 80px; justify-content: center; white-space: nowrap; }
@@ -80,18 +90,21 @@
         #bottom-panel { 
             height: 200px; background: var(--bg-panel); display: flex; flex-direction: column; min-height: 0; flex-shrink: 0; border-top: 1px solid #333;
         }
-        #panel-tabs { height: 30px; background: #222; display: flex; border-bottom: 1px solid #333; }
+        #panel-tabs { height: 30px; background: #222; display: flex; border-bottom: 1px solid #333; flex-shrink: 0; }
         .panel-tab { padding: 0 15px; font-size: 12px; color: #888; display: flex; align-items: center; cursor: pointer; border-right: 1px solid #333; }
         .panel-tab.active { background: #1e1e1e; color: white; font-weight: bold; border-top: 2px solid var(--accent); }
         
+        /* Content Areas */
         #terminal-area { flex: 1; display: none; overflow: hidden; flex-direction: column; }
         #bottom-preview-area { flex: 1; display: none; overflow: hidden; flex-direction: column; }
-        #terminal-area.show, #bottom-preview-area.show { display: flex; }
+        
+        #terminal-area.show { display: flex; }
+        #bottom-preview-area.show { display: flex; }
 
         #output { flex: 1; padding: 10px; overflow: auto; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.5; color: #d4d4d4; user-select: text; white-space: pre-wrap; }
-        iframe { width: 100%; height: 100%; border: none; background: white; }
+        iframe { width: 100%; height: 100%; border: none; background: white; flex: 1; }
 
-        /* Status Bar (New!) */
+        /* Status Bar */
         #status-bar {
             height: 24px; background: var(--status-bar-bg); color: var(--status-bar-fg);
             display: flex; align-items: center; padding: 0 10px; font-size: 11px;
@@ -104,7 +117,7 @@
         /* Resizers */
         .resizer-h { 
             height: 10px; background: #2d2d2d; cursor: row-resize; z-index: 20; 
-            display: flex; justify-content: center; align-items: center;
+            display: flex; justify-content: center; align-items: center; flex-shrink: 0;
         }
         .resizer-h::after { content: "•••"; color: #666; font-size: 8px; letter-spacing: 2px; }
         
@@ -118,6 +131,11 @@
         .spinner { width: 40px; height: 40px; border: 3px solid #333; border-top: 3px solid #007acc; border-radius: 50%; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
+        /* Context Menu */
+        #context-menu { position: absolute; background: #252526; border: 1px solid #444; display: none; z-index: 4000; min-width: 160px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); border-radius: 4px; overflow: hidden; }
+        .ctx-item { padding: 12px 15px; font-size: 14px; cursor: pointer; color: #eee; border-bottom: 1px solid #333; }
+        .ctx-item:active, .ctx-item:hover { background: #007acc; }
+
         @media (max-width: 768px) {
             #sidebar { position: absolute; height: 100%; z-index: 50; transform: translateX(-100%); width: 280px; box-shadow: 2px 0 10px rgba(0,0,0,0.5); }
             #sidebar.open { transform: translateX(0); }
@@ -130,7 +148,7 @@
 
 <div id="loading-screen">
     <div class="spinner"></div>
-    <div style="color:#aaa; margin-top:10px;">System Booting...</div>
+    <div id="loading-text" style="color:#aaa; margin-top:10px;">System Booting...</div>
 </div>
 
 <div id="app-wrapper">
@@ -168,7 +186,7 @@
             
             <div class="resizer-v" id="resizer-v" style="display:none;"></div>
             <div id="right-preview-pane">
-                <div style="background:#222; color:#aaa; font-size:11px; padding:5px;">PREVIEW</div>
+                <div style="background:#222; color:#aaa; font-size:11px; padding:5px; flex-shrink:0;">PREVIEW (Right)</div>
                 <iframe id="right-preview-frame"></iframe>
             </div>
         </div>
@@ -179,7 +197,7 @@
     <div id="bottom-panel">
         <div id="panel-tabs">
             <div class="panel-tab active" id="tab-term" onclick="switchPanel('terminal')">TERMINAL</div>
-            <div class="panel-tab" id="tab-prev" onclick="switchPanel('preview')">PREVIEW</div>
+            <div class="panel-tab" id="tab-prev" onclick="switchPanel('preview')">PREVIEW (Bottom)</div>
             <div class="panel-tab" onclick="clearOutput()" style="margin-left:auto;">CLEAR</div>
         </div>
         
@@ -205,6 +223,14 @@
     <div class="status-item"><span class="status-icon">💾</span> Mem: <span id="mem-val">--</span></div>
     <div class="status-item"><span class="status-icon">🐍</span> Py: <span id="py-status-text">Init</span></div>
     <div class="status-item" style="margin-left:auto;"><span class="status-icon">📄</span> <span id="file-count">0</span> Files</div>
+</div>
+
+<!-- Context Menu -->
+<div id="context-menu">
+    <div class="ctx-item" onclick="ctxRun()">▶ 実行</div>
+    <div class="ctx-item" onclick="ctxRename()">✏️ 名前変更</div>
+    <div class="ctx-item" onclick="ctxMove()">📂 移動...</div>
+    <div class="ctx-item" onclick="ctxDelete()" style="color:#ff6666;">🗑️ 削除</div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.js"></script>
