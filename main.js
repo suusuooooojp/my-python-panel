@@ -1,7 +1,22 @@
-// --- Service Worker ---
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
+// --- Service Worker & Update Logic ---
+if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('sw.js').then(reg => {
+        // 更新が見つかった場合
+        reg.onupdatefound = () => {
+            const installingWorker = reg.installing;
+            installingWorker.onstatechange = () => {
+                if (installingWorker.state === 'installed') {
+                    if (navigator.serviceWorker.controller) {
+                        // 新しいコンテンツが利用可能
+                        document.getElementById('update-bar').style.display = 'block';
+                    }
+                }
+            };
+        };
+    }).catch(console.error);
+}
 
-// --- Loading & Status Logic ---
+// --- Loading UI ---
 function updateProgress(percent, text) {
     const bar = document.getElementById('progress-bar');
     const txt = document.getElementById('loading-text');
@@ -9,73 +24,8 @@ function updateProgress(percent, text) {
     if (txt) txt.innerText = text;
 }
 
-// Timeout Logic: 20秒経過してもロード画面ならリトライボタンを表示
-setTimeout(() => {
-    const screen = document.getElementById('loading-screen');
-    if (screen && screen.style.display !== 'none') {
-        document.getElementById('retry-area').style.display = 'block';
-        updateProgress(95, "Connection slow? Waiting...");
-    }
-}, 20000);
-
-// Status Bar Update
-function setPyStatus(state) {
-    const dot = document.getElementById('py-dot');
-    const txt = document.getElementById('py-text');
-    dot.className = 'status-dot';
-    
-    if (state === 'loading') {
-        dot.classList.add('loading');
-        txt.innerText = "Py Loading...";
-    } else if (state === 'ready') {
-        dot.classList.add('ready');
-        txt.innerText = "Py Ready";
-    } else if (state === 'error') {
-        dot.classList.add('error');
-        txt.innerText = "Py Error";
-    }
-}
-
-// --- Python Engine Pre-loading ---
-// エディタロードと並行してPythonを読み込む
-let pyWorker = null;
-let isPyReady = false;
-
-function initPyWorker() {
-    setPyStatus('loading');
-    pyWorker = new Worker('py-worker.js');
-    
-    pyWorker.onmessage = (e) => {
-        const d = e.data;
-        if (d.type === 'ready') {
-            isPyReady = true;
-            setPyStatus('ready');
-            log("🐍 Python Engine Ready", '#4caf50');
-        } else if (d.type === 'stdout') {
-            log(d.text);
-        } else if (d.type === 'results') {
-            log("<= " + d.results, '#4ec9b0');
-            resetRunBtn();
-        } else if (d.type === 'error') {
-            log("Error: " + d.error, 'red');
-            if(!isPyReady) setPyStatus('error');
-            resetRunBtn();
-        }
-    };
-    
-    pyWorker.onerror = (e) => {
-        console.error("Worker Error:", e);
-        setPyStatus('error');
-        log("Python Worker Failed to Load", 'red');
-    };
-}
-
-// ページ読み込みと同時にPython初期化開始
-initPyWorker();
-
-
 // --- Monaco Setup ---
-updateProgress(20, "Loading Editor Core...");
+updateProgress(20, "Loading Editor...");
 require.config({ 
     paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' },
     waitSeconds: 30
@@ -96,10 +46,10 @@ let expandedFolders = new Set();
 let zenkakuDecorations = [];
 
 const DEFAULT_FILES = {
-    'main.py': { content: `import sys\nimport random\n\n# Python 3.11 Ready\nprint(f"Python {sys.version.split()[0]} Running")\nprint(f"Random: {random.randint(1, 100)}")`, mode: 'python' },
-    'index.html': { content: `<!DOCTYPE html>\n<html>\n<head>\n  <link rel="stylesheet" href="css/style.css">\n</head>\n<body>\n  <div class="box">\n    <h1>PyPanel</h1>\n    <p>Everything is Ready!</p>\n    <button onclick="test()">Click Me</button>\n  </div>\n  <script src="js/main.js"></script>\n</body>\n</html>`, mode: 'html' },
-    'css/style.css': { content: `body { background: #222; color: #fff; font-family: sans-serif; text-align: center; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }\n.box { border: 1px solid #444; padding: 20px; border-radius: 8px; background: #2a2a2a; }`, mode: 'css' },
-    'js/main.js': { content: `function test() { alert("JS Works!"); }`, mode: 'javascript' }
+    'main.py': { content: `import sys\nimport random\n\n# Long line test for horizontal scrolling...........................................................\nprint(f"Python {sys.version.split()[0]} Ready")`, mode: 'python' },
+    'index.html': { content: `<!DOCTYPE html>\n<html>\n<head>\n  <link rel="stylesheet" href="css/style.css">\n</head>\n<body>\n  <h1>PyPanel Offline</h1>\n  <script src="js/main.js"></script>\n</body>\n</html>`, mode: 'html' },
+    'css/style.css': { content: `body { background: #222; color: #fff; text-align: center; padding: 50px; }`, mode: 'css' },
+    'js/main.js': { content: `console.log("Offline Ready");`, mode: 'javascript' }
 };
 
 try {
@@ -107,11 +57,9 @@ try {
 } catch(e) { files = DEFAULT_FILES; }
 
 // --- Editor Init ---
-updateProgress(50, "Starting Monaco...");
+updateProgress(50, "Initializing...");
 
 require(['vs/editor/editor.main'], function() {
-    updateProgress(80, "Configuring Environment...");
-    
     registerPythonCompletion();
 
     currentPath = Object.keys(files)[0] || "main.py";
@@ -124,11 +72,17 @@ require(['vs/editor/editor.main'], function() {
         minimap: { enabled: true, scale: 0.75 },
         fontFamily: "'JetBrains Mono', monospace",
         padding: { top: 10 },
+        // ★ 横スクロール対応設定 ★
+        wordWrap: "off", // 折り返し無効 = 横スクロール有効
         scrollBeyondLastLine: false,
-        wordWrap: "on"
+        scrollbar: {
+            useShadows: false,
+            verticalHasArrows: false,
+            horizontal: "visible", // 横スクロールバーを常に許可
+            horizontalScrollbarSize: 12
+        }
     });
 
-    // Loading Finish
     updateProgress(100, "Done!");
     setTimeout(() => {
         document.getElementById('loading-screen').style.opacity = '0';
@@ -147,6 +101,7 @@ require(['vs/editor/editor.main'], function() {
         showToast("Executing...");
         runProject();
     });
+    
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => {
         saveFiles();
         showToast("Saved!");
@@ -162,20 +117,28 @@ require(['vs/editor/editor.main'], function() {
     updateZenkaku();
     
 }, function(err) {
-    console.error("Monaco Load Error:", err);
-    updateProgress(90, "Editor Load Failed");
-    document.getElementById('retry-area').style.display = 'block';
+    console.error(err);
+    alert("Editor load failed. Check internet connection for first load.");
 });
 
-// --- Python Completion ---
+// --- Python Worker Init (Background) ---
+let pyWorker = null;
+try {
+    pyWorker = new Worker('py-worker.js');
+    pyWorker.onmessage = (e) => {
+        const d = e.data;
+        if(d.type === 'stdout') log(d.text);
+        else if(d.type === 'results') { log("<= " + d.results, '#4ec9b0'); resetRunBtn(); }
+        else if(d.type === 'error') { log("Error: " + d.error, 'red'); resetRunBtn(); }
+    };
+} catch(e) { console.error(e); }
+
 function registerPythonCompletion() {
     monaco.languages.registerCompletionItemProvider('python', {
         provideCompletionItems: function(model, position) {
-            const suggestions = [
-                ...['import', 'from', 'def', 'class', 'return', 'if', 'else', 'elif', 'while', 'for', 'in', 'try', 'except', 'print', 'len', 'range', 'open', 'sys', 'os', 'math', 'numpy', 'pandas'].map(k => ({
-                    label: k, kind: monaco.languages.CompletionItemKind.Keyword, insertText: k
-                }))
-            ];
+            const suggestions = [...['import', 'from', 'def', 'class', 'return', 'if', 'print'].map(k => ({
+                label: k, kind: monaco.languages.CompletionItemKind.Keyword, insertText: k
+            }))];
             return { suggestions: suggestions };
         }
     });
@@ -189,7 +152,6 @@ function showToast(msg) {
     setTimeout(() => t.classList.remove('show'), 2000);
 }
 
-// --- Zenkaku ---
 function updateZenkaku() {
     if(!editor) return;
     const model = editor.getModel();
@@ -204,11 +166,9 @@ const style = document.createElement('style');
 style.innerHTML = `.zenkaku-bg { background: rgba(255, 165, 0, 0.3); border: 1px solid orange; }`;
 document.head.appendChild(style);
 
-// --- File System UI ---
 function renderTree() {
     const tree = document.getElementById('file-tree');
     tree.innerHTML = "";
-    
     const structure = {};
     Object.keys(files).sort().forEach(path => {
         const parts = path.split('/');
@@ -219,59 +179,42 @@ function renderTree() {
         });
     });
 
-    function buildDom(obj, container, fullPathPrefix = "") {
+    function buildDom(obj, container, prefix = "") {
         Object.keys(obj).sort((a,b) => {
-            const aIsFile = obj[a].__file;
-            const bIsFile = obj[b].__file;
-            if (aIsFile === bIsFile) return a.localeCompare(b);
-            return aIsFile ? 1 : -1;
+            const aF = obj[a].__file, bF = obj[b].__file;
+            if(aF === bF) return a.localeCompare(b);
+            return aF ? 1 : -1;
         }).forEach(key => {
-            if (key === '__file' || key === 'path') return;
+            if(key === '__file' || key === 'path') return;
             const item = obj[key];
             const isFile = item.__file;
-            const currentFullPath = fullPathPrefix ? `${fullPathPrefix}/${key}` : key;
+            const fullPath = prefix ? `${prefix}/${key}` : key;
             
             const node = document.createElement('div');
-            node.className = 'tree-node';
-            
             const content = document.createElement('div');
             content.className = `tree-content ${isFile && item.path === currentPath ? 'active' : ''}`;
             
-            let iconHtml = '';
-            if (isFile) {
-                iconHtml = `<span class="file-spacer"></span>${getIcon(key)}`;
-            } else {
-                const isOpen = expandedFolders.has(currentFullPath);
-                iconHtml = `<span class="arrow ${isOpen ? 'down' : ''}">▶</span>📁`;
-            }
-            
+            let icon = isFile ? getIcon(key) : (expandedFolders.has(fullPath) ? '📂' : '📁');
             const menuBtn = document.createElement('span');
             menuBtn.className = 'tree-menu-btn';
             menuBtn.innerHTML = '⋮';
-            menuBtn.onclick = (e) => { e.stopPropagation(); showCtx(e, currentFullPath, isFile); };
+            menuBtn.onclick = (e) => { e.stopPropagation(); showCtx(e, fullPath, isFile); };
 
-            const nameSpan = document.createElement('span');
-            nameSpan.className = 'tree-name';
-            nameSpan.innerText = key;
-
-            content.innerHTML = iconHtml;
-            content.appendChild(nameSpan);
+            content.innerHTML = `<span style="margin-right:5px;width:15px;display:inline-block;text-align:center;">${icon}</span><span class="tree-name">${key}</span>`;
             content.appendChild(menuBtn);
             
             content.onclick = (e) => {
                 e.stopPropagation();
-                if (isFile) openFile(item.path);
-                else toggleFolder(currentFullPath);
+                if(isFile) openFile(item.path);
+                else toggleFolder(fullPath);
             };
-            content.oncontextmenu = (e) => showCtx(e, currentFullPath, isFile);
-
             node.appendChild(content);
 
-            if (!isFile) {
-                const childrenDiv = document.createElement('div');
-                childrenDiv.className = `tree-children ${expandedFolders.has(currentFullPath) ? 'open' : ''}`;
-                buildDom(item, childrenDiv, currentFullPath);
-                node.appendChild(childrenDiv);
+            if(!isFile) {
+                const children = document.createElement('div');
+                children.className = `tree-children ${expandedFolders.has(fullPath) ? 'open' : ''}`;
+                buildDom(item, children, fullPath);
+                node.appendChild(children);
             }
             container.appendChild(node);
         });
@@ -279,80 +222,60 @@ function renderTree() {
     buildDom(structure, tree);
 }
 
-function toggleFolder(path) {
-    if(expandedFolders.has(path)) expandedFolders.delete(path);
-    else expandedFolders.add(path);
+function toggleFolder(p) {
+    if(expandedFolders.has(p)) expandedFolders.delete(p); else expandedFolders.add(p);
     renderTree();
 }
-
-function openFile(path) {
-    currentPath = path;
-    const model = editor.getModel();
-    monaco.editor.setModelLanguage(model, getLang(path));
-    editor.setValue(files[path].content);
+function openFile(p) {
+    currentPath = p;
+    monaco.editor.setModelLanguage(editor.getModel(), getLang(p));
+    editor.setValue(files[p].content);
     renderTree();
     updateTabs();
     updateZenkaku();
 }
 
-// --- Menu Logic ---
+// Menu
 const ctxMenu = document.getElementById('context-menu');
-let ctxTarget = null;
-let ctxIsFile = true;
-function showCtx(e, path, isFile) {
-    e.preventDefault(); e.stopPropagation();
-    ctxTarget = path; ctxIsFile = isFile;
+let ctxTarget = null, ctxIsFile = true;
+function showCtx(e, p, f) {
+    e.preventDefault(); ctxTarget = p; ctxIsFile = f;
     let x = e.pageX, y = e.pageY;
     ctxMenu.style.display = 'block';
-    const rect = ctxMenu.getBoundingClientRect();
-    if(x + rect.width > window.innerWidth) x = window.innerWidth - rect.width - 10;
-    if(y + rect.height > window.innerHeight) y = window.innerHeight - rect.height - 10;
-    ctxMenu.style.left = x + 'px'; ctxMenu.style.top = y + 'px';
+    const r = ctxMenu.getBoundingClientRect();
+    if(x+r.width > window.innerWidth) x = window.innerWidth - r.width - 10;
+    if(y+r.height > window.innerHeight) y = window.innerHeight - r.height - 10;
+    ctxMenu.style.left = x+'px'; ctxMenu.style.top = y+'px';
 }
 document.addEventListener('click', () => ctxMenu.style.display = 'none');
 if(editor) editor.onMouseDown(() => ctxMenu.style.display = 'none');
 
 function ctxDelete() {
-    if(ctxTarget && confirm(`削除しますか？\n${ctxTarget}`)) {
+    if(confirm("Delete?")) {
         if(ctxIsFile) delete files[ctxTarget];
-        else Object.keys(files).forEach(k => { if(k.startsWith(ctxTarget + '/')) delete files[k]; });
+        else Object.keys(files).forEach(k => { if(k.startsWith(ctxTarget+'/')) delete files[k]; });
         if(!files[currentPath]) currentPath = Object.keys(files)[0] || "";
         if(currentPath) openFile(currentPath); else editor.setValue("");
         saveFiles(); renderTree();
-        showToast("Deleted");
     }
 }
 function ctxRename() {
-    if(!ctxTarget) return;
-    const newName = prompt("新しい名前:", ctxTarget.split('/').pop());
-    if(!newName) return;
-    const parentDir = ctxTarget.substring(0, ctxTarget.lastIndexOf('/'));
-    const newPath = parentDir ? `${parentDir}/${newName}` : newName;
-    if(newPath === ctxTarget || files[newPath]) return;
-    moveEntry(ctxTarget, newPath);
+    const n = prompt("New name:", ctxTarget.split('/').pop());
+    if(!n) return;
+    const dir = ctxTarget.substring(0, ctxTarget.lastIndexOf('/'));
+    const np = dir ? `${dir}/${n}` : n;
+    if(np === ctxTarget || files[np]) return;
+    moveEntry(ctxTarget, np);
     renderTree();
-    showToast("Renamed");
 }
 function ctxMove() {
-    if(!ctxTarget) return;
-    const folders = new Set(['(root)']);
-    Object.keys(files).forEach(k => {
-        const parts = k.split('/');
-        if(parts.length > 1) {
-            let p = "";
-            for(let i=0; i<parts.length-1; i++){ p += (p?"/":"") + parts[i]; folders.add(p); }
-        }
-    });
-    const dest = prompt(`移動先のフォルダ:\n${Array.from(folders).join(', ')}`, "");
+    const dest = prompt("Move to folder (empty for root):", "");
     if(dest === null) return;
-    let targetDir = dest.trim();
-    if(targetDir === '(root)' || targetDir === '') targetDir = '';
-    const fileName = ctxTarget.split('/').pop();
-    const newPath = targetDir ? `${targetDir}/${fileName}` : fileName;
-    if(newPath === ctxTarget) return;
-    moveEntry(ctxTarget, newPath);
+    const d = dest.trim();
+    const fn = ctxTarget.split('/').pop();
+    const np = d ? `${d}/${fn}` : fn;
+    moveEntry(ctxTarget, np);
     renderTree();
-    showToast("Moved");
 }
 function moveEntry(oldP, newP) {
     if(files[oldP]) {
@@ -360,11 +283,10 @@ function moveEntry(oldP, newP) {
         if(currentPath === oldP) { currentPath = newP; updateTabs(); }
     } else {
         Object.keys(files).forEach(k => {
-            if(k.startsWith(oldP + '/')) {
+            if(k.startsWith(oldP+'/')) {
                 const suffix = k.substring(oldP.length);
-                const dest = newP + suffix;
-                files[dest] = files[k]; delete files[k];
-                if(currentPath === k) { currentPath = dest; updateTabs(); }
+                files[newP+suffix] = files[k]; delete files[k];
+                if(currentPath === k) { currentPath = newP+suffix; updateTabs(); }
             }
         });
     }
@@ -373,22 +295,17 @@ function moveEntry(oldP, newP) {
 function ctxRun() { if(ctxIsFile) { openFile(ctxTarget); runProject(); } }
 
 function createNewFile() {
-    let path = prompt("ファイル名 (例: src/test.py):", "");
-    if(!path) return;
-    if(files[path]) { alert("既に存在します"); return; }
-    files[path] = { content: "", mode: getLang(path) };
-    const parts = path.split('/');
-    if(parts.length > 1) expandedFolders.add(parts[0]);
-    saveFiles(); renderTree(); openFile(path);
-    showToast("Created");
+    const p = prompt("Filename:", "");
+    if(!p || files[p]) return;
+    files[p] = { content: "", mode: getLang(p) };
+    saveFiles(); renderTree(); openFile(p);
 }
 function createNewFolder() {
-    let path = prompt("フォルダ名:", "folder");
-    if(!path) return;
-    files[`${path}/.keep`] = { content: "", mode: "plaintext" };
-    expandedFolders.add(path);
+    const p = prompt("Folder:", "folder");
+    if(!p) return;
+    files[`${p}/.keep`] = { content: "", mode: "plaintext" };
+    expandedFolders.add(p);
     saveFiles(); renderTree();
-    showToast("Created");
 }
 
 function getLang(p) {
@@ -396,7 +313,6 @@ function getLang(p) {
     if(p.endsWith('.js')) return 'javascript';
     if(p.endsWith('.html')) return 'html';
     if(p.endsWith('.css')) return 'css';
-    if(p.endsWith('.rb')) return 'ruby';
     return 'plaintext';
 }
 function getIcon(p) {
@@ -408,58 +324,40 @@ function getIcon(p) {
 }
 function updateTabs() { document.getElementById('tabs').innerHTML = `<div class="tab active">${currentPath}</div>`; }
 
-// --- Runner ---
 async function runProject() {
     const btn = document.getElementById('runBtn');
     btn.disabled = true;
-    btn.innerText = "Running...";
-    showToast("Running Project...");
-
-    if (currentPath.endsWith('.py')) {
+    showToast("Running...");
+    
+    if(currentPath.endsWith('.py')) {
         switchPanel('terminal');
-        // Python Workerが準備できていなければ待つなどの処理も可だが、
-        // InitPyWorkerがすでに走っているので状態をチェック
-        if (!isPyReady) {
-            log("⏳ Waiting for Python Engine...", 'orange');
-            // Workerは裏で走っているのでReadyメッセージ待ち
-        } else {
-            runPython();
-        }
+        runPython();
         return;
     }
     let entry = files['index.html'] ? 'index.html' : (currentPath.endsWith('.html') ? currentPath : null);
-    if (entry) {
+    if(entry) {
         switchPanel('preview');
-        log(`Bundling Web Project...`, '#4ec9b0');
-        const html = bundleFiles(entry);
-        document.getElementById('preview-frame').srcdoc = html;
+        document.getElementById('preview-frame').srcdoc = bundleFiles(entry);
         resetRunBtn();
         return;
     }
-    log("実行不可 (index.html または .py が必要)", 'orange');
     resetRunBtn();
 }
-
-function resetRunBtn() {
-    const btn = document.getElementById('runBtn');
-    btn.disabled = false;
-    btn.innerText = "▶ Run";
-}
+function resetRunBtn() { document.getElementById('runBtn').disabled = false; }
 
 function bundleFiles(htmlPath) {
     let html = files[htmlPath].content;
-    html = html.replace(/<link\s+[^>]*href=["']([^"']+)["'][^>]*>/g, (m, h) => files[h] ? `<style>/* ${h} */\n${files[h].content}</style>` : m);
-    html = html.replace(/<script\s+[^>]*src=["']([^"']+)["'][^>]*><\/script>/g, (m, s) => files[s] ? `<script>/* ${s} */\n${files[s].content}</script>` : m);
+    html = html.replace(/<link\s+[^>]*href=["']([^"']+)["'][^>]*>/g, (m, h) => files[h] ? `<style>\n${files[h].content}\n</style>` : m);
+    html = html.replace(/<script\s+[^>]*src=["']([^"']+)["'][^>]*><\/script>/g, (m, s) => files[s] ? `<script>\n${files[s].content}\n</script>` : m);
     return html;
 }
 
 function runPython() {
-    const fileData = {};
-    for(let f in files) fileData[f] = files[f].content;
-    pyWorker.postMessage({ cmd: 'run', code: files[currentPath].content, files: fileData });
+    const d = {};
+    for(let f in files) d[f] = files[f].content;
+    pyWorker.postMessage({ cmd: 'run', code: files[currentPath].content, files: d });
 }
 
-// --- UI Logic ---
 const termLog = document.getElementById('term-log');
 const shellIn = document.getElementById('shell-input');
 shellIn.addEventListener('keydown', e => {
@@ -476,14 +374,12 @@ function log(msg, color) {
     document.getElementById('output').scrollTop = 99999;
 }
 function clearOutput() { termLog.innerHTML = ""; }
-function resetAll() { if(confirm("全データを削除しますか？")) { localStorage.removeItem('pypanel_files'); location.reload(); } }
+function resetAll() { if(confirm("Reset data?")) { localStorage.removeItem('pypanel_files'); location.reload(); } }
 function switchPanel(p) {
-    document.getElementById('tab-term').classList.remove('active');
-    document.getElementById('tab-prev').classList.remove('active');
+    document.getElementById('tab-term').className = p === 'terminal' ? 'panel-tab active' : 'panel-tab';
+    document.getElementById('tab-prev').className = p === 'preview' ? 'panel-tab active' : 'panel-tab';
     document.getElementById('terminal-area').className = p === 'terminal' ? 'show' : '';
     document.getElementById('preview-area').className = p === 'preview' ? 'show' : '';
-    if(p === 'terminal') document.getElementById('tab-term').classList.add('active');
-    else document.getElementById('tab-prev').classList.add('active');
 }
 function openPopup() {
     document.getElementById('popup-overlay').style.display = 'flex';
@@ -495,7 +391,7 @@ function toggleSidebar() {
     sb.style.transform = sb.style.transform === 'translateX(-100%)' ? 'translateX(0)' : 'translateX(-100%)';
     setTimeout(() => editor.layout(), 250);
 }
-// Resizer
+
 const resizer = document.getElementById('resizer');
 const bottomPanel = document.getElementById('bottom-panel');
 function handleDrag(e) {
