@@ -9,28 +9,12 @@ async function loadEngine() {
             stderr: (text) => self.postMessage({ type: 'stdout', text: "⚠ " + text })
         });
         
-        // Define Bridge Module
         await pyodide.runPythonAsync(`
-            import js
-            
-            class PyPanelBridge:
-                def dom_write(self, id, content):
-                    # Send message to JS to update DOM
-                    js.postMessage(js.Object.fromEntries({
-                        'type': 'dom_op', 'op': 'write', 'id': id, 'content': content
-                    }))
-                
-                def dom_append(self, id, content):
-                    js.postMessage(js.Object.fromEntries({
-                        'type': 'dom_op', 'op': 'append', 'id': id, 'content': content
-                    }))
-
-            # Register as 'pypanel' module
-            import sys, types
-            m = types.ModuleType("pypanel")
-            m.dom_write = PyPanelBridge().dom_write
-            m.dom_append = PyPanelBridge().dom_append
-            sys.modules["pypanel"] = m
+            import js, sys, types
+            class Bridge:
+                def dom_write(self, id, c):
+                    js.postMessage(js.Object.fromEntries({'type':'dom_op','op':'write','id':id,'content':c}))
+            sys.modules["pypanel"] = Bridge()
         `);
 
         self.postMessage({ type: 'ready' });
@@ -46,6 +30,7 @@ self.onmessage = async (e) => {
         try {
             if (files) {
                 for (const [filename, content] of Object.entries(files)) {
+                    // Create directories
                     const parts = filename.split('/');
                     if(parts.length > 1) {
                         let path = "";
