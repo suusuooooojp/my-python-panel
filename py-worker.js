@@ -1,4 +1,9 @@
-importScripts("https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js");
+// --- Python Worker with Error Handling ---
+try {
+    importScripts("https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js");
+} catch (e) {
+    self.postMessage({ type: 'error', error: "Failed to load Pyodide Script. Check internet." });
+}
 
 let pyodide = null;
 
@@ -10,17 +15,27 @@ async function loadEngine() {
         });
         self.postMessage({ type: 'ready' });
     } catch (e) {
-        self.postMessage({ type: 'error', error: e.toString() });
+        self.postMessage({ type: 'error', error: "Pyodide Init Failed: " + e.toString() });
     }
 }
-loadEngine();
+
+// Start loading immediately
+if (typeof loadPyodide !== 'undefined') {
+    loadEngine();
+}
 
 self.onmessage = async (e) => {
     const { cmd, code, files } = e.data;
-    if (cmd === 'run' && pyodide) {
+    
+    if (cmd === 'run') {
+        if (!pyodide) {
+            self.postMessage({ type: 'error', error: "Engine not ready yet." });
+            return;
+        }
+        
         try {
+            // File System Sync
             if (files) {
-                // Ensure directories exist and write files
                 for (const [filename, content] of Object.entries(files)) {
                     const parts = filename.split('/');
                     if(parts.length > 1) {
@@ -33,8 +48,12 @@ self.onmessage = async (e) => {
                     pyodide.FS.writeFile(filename, content);
                 }
             }
-            await pyodide.runPythonAsync(code);
-            self.postMessage({ type: 'results', results: 'Done' });
+            
+            // Run
+            await pyodide.loadPackagesFromImports(code);
+            let results = await pyodide.runPythonAsync(code);
+            self.postMessage({ type: 'results', results: String(results) });
+            
         } catch (error) {
             self.postMessage({ type: 'error', error: error.toString() });
         }
