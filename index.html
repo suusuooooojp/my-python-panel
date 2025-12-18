@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>PyPanel IDE</title>
+    <title>PyPanel Ultra (Stable)</title>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;600&display=swap" rel="stylesheet">
     <style>
         :root {
@@ -17,29 +17,34 @@
         * { box-sizing: border-box; }
         body { margin: 0; display: flex; flex-direction: column; height: 100vh; background: var(--bg-dark); color: var(--text-main); font-family: 'Inter', sans-serif; overflow: hidden; }
 
-        /* Loading Screen (Enhanced) */
+        /* Enhanced Loading Screen */
         #loading-screen {
             position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #1e1e1e; z-index: 9999;
             display: flex; flex-direction: column; justify-content: center; align-items: center; transition: opacity 0.5s;
         }
         .spinner {
-            width: 40px; height: 40px; border: 3px solid #333; border-top: 3px solid #007acc; border-radius: 50%;
-            animation: spin 1s linear infinite; margin-bottom: 15px;
+            width: 50px; height: 50px; border: 4px solid #333; border-top: 4px solid #007acc; border-radius: 50%;
+            animation: spin 1s linear infinite; margin-bottom: 20px;
         }
-        .loading-text { font-size: 14px; color: #ccc; margin-bottom: 10px; font-family: monospace; }
+        .loading-title { font-size: 18px; font-weight: bold; margin-bottom: 10px; color: #fff; }
+        .loading-text { font-size: 14px; color: #aaa; margin-bottom: 15px; font-family: monospace; }
         
         .progress-container {
-            width: 200px; height: 4px; background: #333; border-radius: 2px; overflow: hidden; position: relative;
+            width: 250px; height: 6px; background: #333; border-radius: 3px; overflow: hidden; position: relative; margin-bottom: 20px;
         }
         .progress-bar {
-            height: 100%; background: #007acc; width: 0%; transition: width 0.3s ease;
+            height: 100%; background: #007acc; width: 0%; transition: width 0.3s ease; box-shadow: 0 0 10px #007acc;
         }
         
-        #retry-btn {
-            margin-top: 20px; padding: 8px 16px; background: #f44336; color: white; border: none; border-radius: 4px;
-            cursor: pointer; display: none; font-size: 13px;
+        #retry-area { display: none; text-align: center; animation: fadeIn 0.5s; }
+        .retry-btn {
+            padding: 8px 20px; background: #f44336; color: white; border: none; border-radius: 4px;
+            cursor: pointer; font-size: 14px; font-weight: bold;
         }
+        .retry-note { font-size: 12px; color: #888; margin-top: 10px; max-width: 300px; }
+
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
 
         /* Toolbar */
         #toolbar { 
@@ -52,10 +57,19 @@
         button { 
             cursor: pointer; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; font-weight: 600; color: white; transition: 0.2s; display: flex; align-items: center; gap: 5px;
         }
-        #runBtn { background: #2ea043; } #runBtn:hover { background: #3fb950; }
+        button:disabled { opacity: 0.5; cursor: not-allowed; }
+        #runBtn { background: #2ea043; } #runBtn:hover:not(:disabled) { background: #3fb950; }
         #stopBtn { background: #da3633; display: none; } #stopBtn:hover { background: #f85149; }
         #popBtn { background: #007acc; } #popBtn:hover { background: #0062a3; }
         .icon-btn { background: transparent; color: #aaa; padding: 6px; font-size: 18px; } .icon-btn:hover { color: #fff; background: #444; }
+
+        /* Status Indicator */
+        #py-status { font-size: 12px; color: #aaa; display: flex; align-items: center; gap: 5px; margin-right: 10px; }
+        .status-dot { width: 8px; height: 8px; border-radius: 50%; background: #555; display: inline-block; }
+        .status-dot.loading { background: #ffeb3b; animation: pulse 1s infinite; }
+        .status-dot.ready { background: #4caf50; }
+        .status-dot.error { background: #f44336; }
+        @keyframes pulse { 0% { opacity: 0.5; } 50% { opacity: 1; } 100% { opacity: 0.5; } }
 
         /* Workspace */
         #workspace { flex: 1; display: flex; overflow: hidden; position: relative; }
@@ -69,18 +83,13 @@
         .sidebar-header { padding: 10px; font-size: 11px; font-weight: bold; color: #888; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; }
         #file-tree { flex: 1; overflow-y: auto; padding: 5px 0; }
         
-        /* Tree Items */
         .tree-node { color: #ccc; font-size: 13px; white-space: nowrap; display: flex; flex-direction: column; }
         .tree-content { display: flex; align-items: center; padding: 6px 10px; cursor: pointer; border: 1px solid transparent; position: relative; }
         .tree-content:hover { background: #2a2d2e; }
         .tree-content.active { background: #37373d; color: white; border-left: 2px solid var(--accent); }
         .tree-name { flex: 1; overflow: hidden; text-overflow: ellipsis; pointer-events: none; margin-left: 5px; }
-        
-        .tree-menu-btn { 
-            padding: 2px 8px; color: #888; border-radius: 3px; cursor: pointer; font-weight: bold; font-size: 14px; margin-left: auto;
-        }
+        .tree-menu-btn { padding: 2px 8px; color: #888; border-radius: 3px; cursor: pointer; font-weight: bold; font-size: 14px; margin-left: auto; }
         .tree-menu-btn:hover { background: #444; color: #fff; }
-
         .tree-children { padding-left: 12px; display: none; border-left: 1px solid #444; margin-left: 10px; }
         .tree-children.open { display: block; }
         .arrow { font-size: 10px; color: #999; display: inline-block; width: 10px; transition: transform 0.1s; }
@@ -95,10 +104,7 @@
         #editor-container { flex: 1; overflow: hidden; }
 
         /* Resizer */
-        .resizer { 
-            height: 20px; background: #252526; cursor: row-resize; border-top: 1px solid #333; border-bottom: 1px solid #333;
-            z-index: 20; flex-shrink: 0; display: flex; justify-content: center; align-items: center; touch-action: none;
-        }
+        .resizer { height: 20px; background: #252526; cursor: row-resize; border-top: 1px solid #333; border-bottom: 1px solid #333; z-index: 20; flex-shrink: 0; display: flex; justify-content: center; align-items: center; touch-action: none; }
         .resizer::after { content: "••••"; color: #666; font-size: 12px; letter-spacing: 3px; font-weight: bold; }
 
         /* Panels */
@@ -106,7 +112,6 @@
         #panel-tabs { height: 35px; background: #222; display: flex; border-bottom: 1px solid #333; }
         .panel-tab { padding: 0 15px; font-size: 12px; color: #888; display: flex; align-items: center; cursor: pointer; border-right: 1px solid #333; }
         .panel-tab.active { background: #1e1e1e; color: white; font-weight: bold; border-top: 2px solid var(--accent); }
-        
         #output { flex: 1; padding: 10px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.5; color: #d4d4d4; user-select: text; -webkit-user-select: text; cursor: text; }
         #preview-frame { width: 100%; height: 100%; border: none; background: white; }
         #terminal-area, #preview-area { flex: 1; display: none; overflow: hidden; position: relative; }
@@ -116,7 +121,16 @@
         .shell-prompt { color: #2ea043; margin-right: 8px; font-weight: bold; }
         #shell-input { flex: 1; background: transparent; border: none; color: #fff; font-family: inherit; font-size: inherit; outline: none; }
 
-        /* Popups & Menus */
+        /* Toast */
+        #toast {
+            position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+            background: #333; color: white; padding: 8px 20px; border-radius: 20px;
+            font-size: 13px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 5000;
+            opacity: 0; transition: opacity 0.3s, top 0.3s; pointer-events: none; border: 1px solid #444;
+        }
+        #toast.show { opacity: 1; top: 60px; }
+
+        /* Popups */
         #popup-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 3000; display: none; justify-content: center; align-items: center; }
         .popup-window { background: #fff; width: 95%; height: 90%; display: flex; flex-direction: column; border-radius: 8px; overflow: hidden; }
         .popup-header { background: #333; padding: 10px; display: flex; justify-content: space-between; color: white; }
@@ -126,14 +140,6 @@
         #context-menu { position: absolute; background: #252526; border: 1px solid #444; display: none; z-index: 4000; min-width: 160px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); border-radius: 4px; overflow: hidden; }
         .ctx-item { padding: 12px 15px; font-size: 14px; cursor: pointer; color: #eee; border-bottom: 1px solid #333; }
         .ctx-item:active, .ctx-item:hover { background: #007acc; }
-
-        #toast {
-            position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
-            background: #333; color: white; padding: 8px 20px; border-radius: 20px;
-            font-size: 13px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 5000;
-            opacity: 0; transition: opacity 0.3s, top 0.3s; pointer-events: none; border: 1px solid #444;
-        }
-        #toast.show { opacity: 1; top: 60px; }
 
         @media (max-width: 768px) {
             #sidebar { position: absolute; height: 100%; z-index: 50; transform: translateX(-100%); width: 280px; box-shadow: 2px 0 10px rgba(0,0,0,0.5); }
@@ -147,14 +153,18 @@
 </head>
 <body>
 
-<!-- New Loading Screen -->
+<!-- Improved Loading Screen -->
 <div id="loading-screen">
+    <div class="loading-title">PyPanel Ultra</div>
     <div class="spinner"></div>
     <div class="loading-text" id="loading-text">Initializing Environment...</div>
     <div class="progress-container">
         <div class="progress-bar" id="progress-bar"></div>
     </div>
-    <button id="retry-btn" onclick="location.reload()">⚠️ 読み込みに時間がかかっています (再読み込み)</button>
+    <div id="retry-area">
+        <button class="retry-btn" onclick="location.reload(true)">⚠️ 強制リロード</button>
+        <div class="retry-note">初回読み込みや回線状況により時間がかかる場合があります。<br>止まったままの場合はリロードしてください。</div>
+    </div>
 </div>
 
 <div id="toast">Saved</div>
@@ -165,6 +175,7 @@
         <h1>🐍 <span>PyPanel</span></h1>
     </div>
     <div class="tool-group">
+        <div id="py-status"><span class="status-dot" id="py-dot"></span> <span id="py-text">Init</span></div>
         <button id="popBtn" onclick="openPopup()">❐ Pop</button>
         <button id="runBtn" onclick="runProject()">▶ Run</button>
         <button id="stopBtn" onclick="stopCode()">⏹ Stop</button>
@@ -214,7 +225,6 @@
     </div>
 </div>
 
-<!-- Context Menu -->
 <div id="context-menu">
     <div class="ctx-item" onclick="ctxRun()">▶ 実行 (Run)</div>
     <div class="ctx-item" onclick="ctxRename()">✏️ 名前変更 (Rename)</div>
