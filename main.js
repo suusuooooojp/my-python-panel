@@ -14,11 +14,16 @@ window.MonacoEnvironment = {
 let editor;
 let files = {};
 let currentPath = "";
+let zenkakuDecorations = [];
 
-// デフォルトファイル: 相互リンクしているサンプル
+// Sample Project
 const DEFAULT_FILES = {
     'main.py': { 
-        content: `import sys\nprint(f"Python {sys.version.split()[0]} is ready.")`, 
+        content: `import sys\nimport utils\n\nprint(f"🐍 Python {sys.version.split()[0]}")\nprint(utils.greet("Developer"))`, 
+        mode: 'python' 
+    },
+    'utils.py': { 
+        content: `def greet(name):\n    return f"Hello, {name}! (from utils.py)"`, 
         mode: 'python' 
     },
     'index.html': { 
@@ -26,40 +31,32 @@ const DEFAULT_FILES = {
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <!-- ここでCSSファイルを指定すると自動結合されます -->
-  <link rel="stylesheet" href="style.css">
+  <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
-  <div class="box">
-    <h1>Web Project Integration</h1>
-    <p>HTML, CSS, JS are bundled automatically!</p>
-    <button onclick="showAlert()">Test JS</button>
+  <div class="card">
+    <h1>Project Running!</h1>
+    <p>HTML + CSS + JS are bundled.</p>
+    <button onclick="changeColor()">Click Me</button>
   </div>
-  
-  <!-- ここでJSファイルを指定 -->
-  <script src="script.js"></script>
+  <script src="js/app.js"></script>
 </body>
-</html>`, 
-        mode: 'html' 
+</html>`, mode: 'html' 
     },
-    'style.css': { 
-        content: `body { background: #f0f0f0; font-family: sans-serif; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; }
-.box { background: white; padding: 40px; border-radius: 12px; box-shadow: 0 4px 15px rgba(0,0,0,0.1); text-align: center; }
-h1 { color: #007acc; }
-button { padding: 10px 20px; cursor: pointer; background: #007acc; color: white; border: none; border-radius: 4px; }
-button:hover { background: #005a9e; }`, 
-        mode: 'css' 
+    'css/style.css': { 
+        content: `body { background: #f4f4f4; display: flex; justify-content: center; align-items: center; height: 100vh; margin: 0; font-family: sans-serif; }
+.card { background: white; padding: 40px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); text-align: center; }
+button { background: #007acc; color: white; border: none; padding: 10px 20px; border-radius: 4px; font-size: 16px; cursor: pointer; }`, mode: 'css' 
     },
-    'script.js': { 
-        content: `function showAlert() {
-  alert("JavaScript file is correctly linked and executed!");
-  console.log("Script loaded.");
-}`, 
-        mode: 'javascript' 
+    'js/app.js': { 
+        content: `function changeColor() {
+  document.body.style.backgroundColor = document.body.style.backgroundColor === 'black' ? '#f4f4f4' : 'black';
+  alert("JS is working across files!");
+}`, mode: 'javascript' 
     }
 };
 
-// --- Init ---
+// --- Initialization ---
 try {
     files = JSON.parse(localStorage.getItem('pypanel_files')) || DEFAULT_FILES;
 } catch(e) { files = DEFAULT_FILES; }
@@ -73,33 +70,53 @@ require(['vs/editor/editor.main'], function() {
         theme: 'vs-dark',
         fontSize: 14,
         automaticLayout: true,
-        minimap: { enabled: true, scale: 0.75 },
+        minimap: { enabled: true, scale: 0.75, renderCharacters: false },
         fontFamily: "'JetBrains Mono', monospace",
         scrollBeyondLastLine: false,
         padding: { top: 10 }
     });
 
+    // Event Listeners
     editor.onDidChangeModelContent(() => {
         if(files[currentPath]) {
             files[currentPath].content = editor.getValue();
             localStorage.setItem('pypanel_files', JSON.stringify(files));
         }
+        updateZenkaku();
     });
 
     editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, runProject);
     renderTree();
     updateTabs();
+    updateZenkaku();
 });
 
-// --- File System & Tree View ---
+// --- Zenkaku (Full-width space) Detection ---
+function updateZenkaku() {
+    if(!editor) return;
+    const model = editor.getModel();
+    const matches = model.findMatches('　', false, false, false, null, true);
+    const newDecorations = matches.map(match => ({
+        range: match.range,
+        options: {
+            isWholeLine: false,
+            className: 'zenkaku-bg',
+            inlineClassName: 'zenkaku-bg'
+        }
+    }));
+    zenkakuDecorations = model.deltaDecorations(zenkakuDecorations, newDecorations);
+}
+// Add CSS for Zenkaku
+const style = document.createElement('style');
+style.innerHTML = `.zenkaku-bg { background: rgba(255, 165, 0, 0.3); border: 1px solid orange; }`;
+document.head.appendChild(style);
+
+// --- File System & Tree ---
 function renderTree() {
     const tree = document.getElementById('file-tree');
     tree.innerHTML = "";
-    
-    // パスをソートして表示
     Object.keys(files).sort().forEach(path => {
         const parts = path.split('/');
-        // 簡易インデント (本来は再帰構造にするが、今回は見やすさ優先で簡易実装)
         const depth = parts.length - 1;
         const name = parts[parts.length - 1];
         
@@ -122,10 +139,11 @@ function openFile(path) {
     editor.setValue(files[path].content);
     renderTree();
     updateTabs();
+    updateZenkaku();
 }
 
 function createNew() {
-    let path = prompt("Enter Filename (e.g. css/style.css):", "new.py");
+    let path = prompt("Enter Filename (e.g. src/test.py):", "new.py");
     if(!path) return;
     if(files[path]) { alert("File exists"); return; }
     files[path] = { content: "", mode: getLang(path) };
@@ -164,6 +182,7 @@ function showCtx(e, path) {
     ctxMenu.style.top = e.pageY + 'px';
 }
 document.addEventListener('click', () => ctxMenu.style.display = 'none');
+
 function ctxDelete() {
     if(ctxTarget && confirm(`Delete ${ctxTarget}?`)) {
         delete files[ctxTarget];
@@ -172,59 +191,53 @@ function ctxDelete() {
         renderTree();
     }
 }
+function ctxRun() {
+    if(ctxTarget) {
+        openFile(ctxTarget);
+        runProject();
+    }
+}
 
-// --- PROJECT BUNDLER & RUNNER ---
+// --- PROJECT RUNNER (The Core Fix) ---
 async function runProject() {
-    // 1. Pythonモード
+    // Determine Project Type
+    const isPython = currentPath.endsWith('.py') || Object.keys(files).some(k => k.endsWith('.py'));
+    const isWeb = currentPath.match(/\.(html|css|js)$/) || files['index.html'];
+
+    // 1. Python Project
     if (currentPath.endsWith('.py')) {
         switchPanel('terminal');
         runPython();
         return;
     }
 
-    // 2. Webモード (HTML/CSS/JS統合)
-    // 編集中のファイルが何であれ、index.html を探してそれをベースにする
-    // index.html がなければ、編集中のファイルがHTMLならそれを、そうでなければエラー
-    
-    let entryPoint = 'index.html';
-    if (!files['index.html'] && currentPath.endsWith('.html')) {
-        entryPoint = currentPath;
+    // 2. Web Project (Combine everything)
+    if (files['index.html'] || currentPath.endsWith('.html')) {
+        switchPanel('preview');
+        const entry = files['index.html'] ? 'index.html' : currentPath;
+        log(`Bundling Web Project from ${entry}...`, '#4ec9b0');
+        const html = bundleFiles(entry);
+        document.getElementById('preview-frame').srcdoc = html;
+        return;
     }
 
-    if (files[entryPoint]) {
-        switchPanel('preview');
-        log(`Building Web Project from ${entryPoint}...`, '#4ec9b0');
-        const finalHtml = bundleFiles(entryPoint);
-        const frame = document.getElementById('preview-frame');
-        frame.srcdoc = finalHtml;
-    } else {
-        switchPanel('terminal');
-        log(`Error: 'index.html' not found. Cannot bundle project.`, 'red');
-        if(currentPath.match(/\.(css|js)$/)) {
-            log(`(Create an index.html and link this file to run it)`, 'gray');
-        }
-    }
+    // Fallback
+    log("Unknown project type. Create index.html or main.py.", 'orange');
 }
 
-// 仮想ファイルシステムの内容を解析して結合する（超重要機能）
+// Bundler Logic: Replaces <link> and <script> with actual file content
 function bundleFiles(htmlPath) {
     let html = files[htmlPath].content;
-
-    // 1. CSS Injection (<link rel="stylesheet" href="...">)
+    
+    // Inject CSS
     html = html.replace(/<link\s+rel=["']stylesheet["']\s+href=["']([^"']+)["']\s*\/?>/g, (match, href) => {
-        if (files[href]) {
-            console.log(`Bundling CSS: ${href}`);
-            return `<style>/* ${href} */\n${files[href].content}</style>`;
-        }
-        return match; // 見つからなければそのまま
+        if(files[href]) return `<style>/* ${href} */\n${files[href].content}</style>`;
+        return match;
     });
-
-    // 2. JS Injection (<script src="..."></script>)
+    
+    // Inject JS
     html = html.replace(/<script\s+src=["']([^"']+)["']><\/script>/g, (match, src) => {
-        if (files[src]) {
-            console.log(`Bundling JS: ${src}`);
-            return `<script>/* ${src} */\n${files[src].content}</script>`;
-        }
+        if(files[src]) return `<script>/* ${src} */\n${files[src].content}</script>`;
         return match;
     });
 
@@ -244,12 +257,13 @@ function runPython() {
             if(d.type==='error') log("Error: "+d.error, 'red');
         };
     }
+    // Send ALL files to worker
     const fileData = {};
     for(let f in files) fileData[f] = files[f].content;
     pyWorker.postMessage({ cmd: 'run', code: files[currentPath].content, files: fileData });
 }
 
-// --- UI / Utils ---
+// --- UI / Terminal ---
 const termLog = document.getElementById('term-log');
 const shellIn = document.getElementById('shell-input');
 
@@ -258,7 +272,6 @@ shellIn.addEventListener('keydown', e => {
         const val = shellIn.value;
         log(`$ ${val}`, '#888');
         shellIn.value = "";
-        // 簡易コマンド
         if(val === 'ls') log(Object.keys(files).join('  '));
         else if(val === 'clear') termLog.innerHTML = "";
         else log("Command not found");
@@ -273,79 +286,43 @@ function log(msg, color) {
     document.getElementById('output').scrollTop = 99999;
 }
 function clearOutput() { termLog.innerHTML = ""; }
-
 function resetAll() {
-    if(confirm("Reset all files?")) {
-        localStorage.removeItem('pypanel_files');
-        location.reload();
-    }
+    if(confirm("Factory Reset?")) { localStorage.removeItem('pypanel_files'); location.reload(); }
 }
 
-// Panel Switching
-function switchPanel(panelName) {
-    document.getElementById('tab-term').classList.remove('active');
-    document.getElementById('tab-prev').classList.remove('active');
-    document.getElementById('terminal-area').classList.remove('show');
-    document.getElementById('preview-area').classList.remove('show');
-
-    if(panelName === 'terminal') {
-        document.getElementById('tab-term').classList.add('active');
-        document.getElementById('terminal-area').classList.add('show');
-    } else {
-        document.getElementById('tab-prev').classList.add('active');
-        document.getElementById('preview-area').classList.add('show');
-    }
+function switchPanel(panel) {
+    document.querySelectorAll('.panel-tab').forEach(t => t.classList.remove('active'));
+    document.getElementById(panel === 'terminal' ? 'tab-term' : 'tab-prev').classList.add('active');
+    document.getElementById('terminal-area').className = panel === 'terminal' ? 'show' : '';
+    document.getElementById('preview-area').className = panel === 'preview' ? 'show' : '';
 }
 
-// Popup
 function openPopup() {
     document.getElementById('popup-overlay').style.display = 'flex';
-    // index.htmlがあればそれをバンドルして表示
-    if(files['index.html']) {
-        document.getElementById('popup-content').srcdoc = bundleFiles('index.html');
-    } else {
-        document.getElementById('popup-content').srcdoc = "<h1>index.html not found</h1>";
-    }
+    if(files['index.html']) document.getElementById('popup-content').srcdoc = bundleFiles('index.html');
 }
 function closePopup() { document.getElementById('popup-overlay').style.display = 'none'; }
-
-// Sidebar Toggle
 function toggleSidebar() {
     const sb = document.getElementById('sidebar');
     const isClosed = sb.style.transform === 'translateX(-100%)';
     sb.style.transform = isClosed ? 'translateX(0)' : 'translateX(-100%)';
-    if(window.innerWidth > 768) {
-         // PCの場合はwidthで制御したほうが綺麗だが今回は簡易実装
-         sb.style.width = isClosed ? '220px' : '0px'; 
-    }
+    if(window.innerWidth > 768) sb.style.width = isClosed ? '220px' : '0px';
     setTimeout(() => editor.layout(), 250);
 }
 
-// --- Resizer Logic (Touch & Mouse) ---
+// --- Touch Friendly Resizer ---
 const resizer = document.getElementById('resizer');
 const bottomPanel = document.getElementById('bottom-panel');
 
-function startResize(e) {
-    e.preventDefault();
-    document.addEventListener('mousemove', resizing);
-    document.addEventListener('mouseup', stopResize);
-    document.addEventListener('touchmove', resizing, {passive:false});
-    document.addEventListener('touchend', stopResize);
-}
-function resizing(e) {
+function handleDrag(e) {
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    const newHeight = window.innerHeight - clientY;
-    if(newHeight > 50 && newHeight < window.innerHeight - 100) {
-        bottomPanel.style.height = newHeight + 'px';
+    const h = window.innerHeight - clientY;
+    if(h > 50 && h < window.innerHeight - 100) {
+        bottomPanel.style.height = h + 'px';
         editor.layout();
     }
 }
-function stopResize() {
-    document.removeEventListener('mousemove', resizing);
-    document.removeEventListener('mouseup', stopResize);
-    document.removeEventListener('touchmove', resizing);
-    document.removeEventListener('touchend', stopResize);
-}
-
-resizer.addEventListener('mousedown', startResize);
-resizer.addEventListener('touchstart', startResize, {passive: false});
+resizer.addEventListener('mousedown', () => document.addEventListener('mousemove', handleDrag));
+document.addEventListener('mouseup', () => document.removeEventListener('mousemove', handleDrag));
+resizer.addEventListener('touchstart', () => document.addEventListener('touchmove', handleDrag, {passive:false}), {passive:false});
+document.addEventListener('touchend', () => document.removeEventListener('touchmove', handleDrag));
