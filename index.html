@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>PyPanel Ultra Ultimate</title>
+    <title>PyPanel Ultimate</title>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;600&display=swap" rel="stylesheet">
     <style>
         :root {
@@ -13,31 +13,18 @@
             --accent: #007acc;
             --text-main: #cccccc;
             --border: #333333;
+            --status-bar-bg: #007acc;
+            --status-bar-fg: #ffffff;
         }
         * { box-sizing: border-box; }
-        body { margin: 0; height: 100vh; background: var(--bg-dark); color: var(--text-main); font-family: 'Inter', sans-serif; overflow: hidden; }
+        body { margin: 0; height: 100vh; background: var(--bg-dark); color: var(--text-main); font-family: 'Inter', sans-serif; overflow: hidden; display: flex; flex-direction: column; }
 
-        /* Main Layout Wrapper for Zooming */
+        /* Main Wrapper for Zoom */
         #app-wrapper {
-            display: flex; flex-direction: column; height: 100%; width: 100%;
+            flex: 1; display: flex; flex-direction: column; overflow: hidden;
             transform-origin: top left; transition: transform 0.1s;
+            width: 100%; height: 100%;
         }
-
-        /* Load Meter (Top Left) */
-        #system-monitor {
-            position: fixed; top: 50px; left: 10px; width: 180px;
-            background: rgba(30, 30, 30, 0.9); border: 1px solid #444; border-radius: 4px;
-            padding: 8px; font-family: 'JetBrains Mono', monospace; font-size: 10px;
-            z-index: 5000; box-shadow: 0 4px 10px rgba(0,0,0,0.3); pointer-events: none;
-            backdrop-filter: blur(4px);
-        }
-        .monitor-row { display: flex; justify-content: space-between; margin-bottom: 4px; }
-        .monitor-label { color: #888; }
-        .monitor-val { color: #007acc; font-weight: bold; }
-        .monitor-bar-bg { width: 100%; height: 3px; background: #333; margin-bottom: 8px; }
-        .monitor-bar-fill { height: 100%; background: #2ea043; width: 0%; transition: width 0.2s; }
-        .monitor-status.active { color: #2ea043; }
-        .monitor-status.busy { color: #f44336; }
 
         /* Toolbar */
         #toolbar { 
@@ -56,13 +43,10 @@
         .icon-btn { background: transparent; color: #aaa; padding: 6px; font-size: 18px; }
         .icon-btn:hover { color: #fff; background: #444; }
 
-        /* Zoom Controls */
-        #zoom-controls { display: flex; align-items: center; gap: 5px; background: #222; padding: 2px 8px; border-radius: 15px; }
-        #zoom-val { font-size: 10px; width: 30px; text-align: center; }
-
-        /* Workspace Layout */
+        /* Workspace */
         #workspace { flex: 1; display: flex; overflow: hidden; position: relative; }
         
+        /* Sidebar */
         #sidebar { 
             width: 240px; background: var(--bg-sidebar); border-right: 1px solid var(--border); display: flex; flex-direction: column;
             transition: transform 0.2s ease; flex-shrink: 0; user-select: none;
@@ -70,7 +54,6 @@
         .sidebar-header { padding: 10px; font-size: 11px; font-weight: bold; color: #888; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; }
         #file-tree { flex: 1; overflow-y: auto; padding: 5px 0; }
         
-        /* Tree Items */
         .tree-node { color: #ccc; font-size: 13px; display: flex; flex-direction: column; }
         .tree-content { display: flex; align-items: center; padding: 6px 10px; cursor: pointer; border: 1px solid transparent; }
         .tree-content:hover { background: #2a2d2e; }
@@ -79,22 +62,21 @@
         .tree-children { padding-left: 12px; display: none; border-left: 1px solid #444; margin-left: 10px; }
         .tree-children.open { display: block; }
         
-        /* Central Area (Editor + Right Preview) */
+        /* Center Area */
         #center-area { flex: 1; display: flex; min-width: 0; height: 100%; position: relative; }
-        
         #editor-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; height: 100%; }
         #tabs { height: 35px; background: #2d2d2d; display: flex; align-items: center; overflow-x: auto; flex-shrink: 0; border-bottom: 1px solid #111; }
         .tab { padding: 0 15px; height: 100%; display: flex; align-items: center; font-size: 13px; color: #888; background: #2d2d2d; cursor: pointer; border-right: 1px solid #1e1e1e; min-width: 80px; justify-content: center; white-space: nowrap; }
         .tab.active { background: #1e1e1e; color: #fff; border-top: 2px solid var(--accent); }
         #editor-container { flex: 1; overflow: hidden; }
 
-        /* Right Preview Pane */
+        /* Right Preview */
         #right-preview-pane { 
             width: 40%; background: #fff; display: none; flex-direction: column; border-left: 1px solid #333;
         }
         #right-preview-pane.show { display: flex; }
 
-        /* Bottom Panel (Terminal / Preview) */
+        /* Bottom Panel */
         #bottom-panel { 
             height: 200px; background: var(--bg-panel); display: flex; flex-direction: column; min-height: 0; flex-shrink: 0; border-top: 1px solid #333;
         }
@@ -102,34 +84,44 @@
         .panel-tab { padding: 0 15px; font-size: 12px; color: #888; display: flex; align-items: center; cursor: pointer; border-right: 1px solid #333; }
         .panel-tab.active { background: #1e1e1e; color: white; font-weight: bold; border-top: 2px solid var(--accent); }
         
-        #output { flex: 1; padding: 10px; overflow: auto; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.5; color: #d4d4d4; user-select: text; white-space: pre-wrap; }
-        #bottom-preview-frame, #right-preview-frame { width: 100%; height: 100%; border: none; background: white; }
-        
-        /* Layout Handling */
         #terminal-area { flex: 1; display: none; overflow: hidden; flex-direction: column; }
         #bottom-preview-area { flex: 1; display: none; overflow: hidden; flex-direction: column; }
-        
-        #terminal-area.show { display: flex; }
-        #bottom-preview-area.show { display: flex; }
+        #terminal-area.show, #bottom-preview-area.show { display: flex; }
 
-        /* Shell */
-        .shell-line { display: flex; margin-top: 5px; }
-        .shell-prompt { color: #2ea043; margin-right: 8px; font-weight: bold; }
-        #shell-input { flex: 1; background: transparent; border: none; color: #fff; font-family: inherit; font-size: inherit; outline: none; }
+        #output { flex: 1; padding: 10px; overflow: auto; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.5; color: #d4d4d4; user-select: text; white-space: pre-wrap; }
+        iframe { width: 100%; height: 100%; border: none; background: white; }
 
-        /* Utils */
-        .resizer { height: 15px; background: #252526; cursor: row-resize; display: flex; justify-content: center; align-items: center; z-index: 10; }
-        .resizer-v { width: 5px; background: #252526; cursor: col-resize; z-index: 10; }
+        /* Status Bar (New!) */
+        #status-bar {
+            height: 24px; background: var(--status-bar-bg); color: var(--status-bar-fg);
+            display: flex; align-items: center; padding: 0 10px; font-size: 11px;
+            flex-shrink: 0; gap: 15px; font-family: 'Inter', sans-serif;
+            z-index: 200;
+        }
+        .status-item { display: flex; align-items: center; gap: 5px; }
+        .status-icon { font-size: 12px; }
+
+        /* Resizers */
+        .resizer-h { 
+            height: 10px; background: #2d2d2d; cursor: row-resize; z-index: 20; 
+            display: flex; justify-content: center; align-items: center;
+        }
+        .resizer-h::after { content: "•••"; color: #666; font-size: 8px; letter-spacing: 2px; }
         
+        .resizer-v { 
+            width: 8px; background: #2d2d2d; cursor: col-resize; z-index: 20; 
+            display: flex; align-items: center; justify-content: center;
+        }
+
+        /* Loading */
         #loading-screen { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #1e1e1e; z-index: 9999; display: flex; flex-direction: column; justify-content: center; align-items: center; }
         .spinner { width: 40px; height: 40px; border: 3px solid #333; border-top: 3px solid #007acc; border-radius: 50%; animation: spin 1s linear infinite; }
         @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
-        /* Mobile */
         @media (max-width: 768px) {
             #sidebar { position: absolute; height: 100%; z-index: 50; transform: translateX(-100%); width: 280px; box-shadow: 2px 0 10px rgba(0,0,0,0.5); }
             #sidebar.open { transform: translateX(0); }
-            #right-preview-pane { display: none !important; } /* Force bottom on mobile */
+            #right-preview-pane { display: none !important; }
             h1 span { display: none; }
         }
     </style>
@@ -138,19 +130,7 @@
 
 <div id="loading-screen">
     <div class="spinner"></div>
-    <div id="loading-text" style="color:#aaa; margin-top:10px;">System Booting...</div>
-</div>
-
-<!-- Detailed Load Meter -->
-<div id="system-monitor">
-    <div class="monitor-row"><span>CPU (Est)</span><span class="monitor-val" id="cpu-val">0%</span></div>
-    <div class="monitor-bar-bg"><div class="monitor-bar-fill" id="cpu-bar"></div></div>
-    
-    <div class="monitor-row"><span>Memory</span><span class="monitor-val" id="mem-val">-</span></div>
-    
-    <div class="monitor-row"><span>Python</span><span class="monitor-status" id="py-status-text">Init</span></div>
-    
-    <div class="monitor-row"><span>Files</span><span class="monitor-val" id="file-count">0</span></div>
+    <div style="color:#aaa; margin-top:10px;">System Booting...</div>
 </div>
 
 <div id="app-wrapper">
@@ -160,18 +140,11 @@
             <h1>🐍 <span>PyPanel</span></h1>
         </div>
         <div class="tool-group">
-            <!-- Zoom Controls -->
-            <div id="zoom-controls">
-                <span class="icon-btn" onclick="changeZoom(-0.1)" style="font-size:12px;">-</span>
-                <span id="zoom-val">100%</span>
-                <span class="icon-btn" onclick="changeZoom(0.1)" style="font-size:12px;">+</span>
-            </div>
-            <!-- Layout Controls -->
-            <button class="icon-btn" onclick="toggleLayout()" title="Toggle Right Preview">◫</button>
-            
+            <button class="icon-btn" onclick="changeZoom(-0.1)" style="font-size:12px;">-</button>
+            <button class="icon-btn" onclick="changeZoom(0.1)" style="font-size:12px;">+</button>
+            <button class="icon-btn" onclick="toggleLayout()" title="Layout">◫</button>
             <button id="runBtn" onclick="runProject()">▶ Run</button>
             <button id="stopBtn" onclick="stopCode()">⏹ Stop</button>
-            <button class="icon-btn" onclick="resetAll()" title="Reset" style="color: #f44336;">⚡</button>
         </div>
     </div>
 
@@ -193,30 +166,29 @@
                 <div id="editor-container"></div>
             </div>
             
-            <!-- Right Preview (Hidden by default) -->
             <div class="resizer-v" id="resizer-v" style="display:none;"></div>
             <div id="right-preview-pane">
-                <div style="background:#222; color:#aaa; font-size:11px; padding:5px;">PREVIEW (Right)</div>
+                <div style="background:#222; color:#aaa; font-size:11px; padding:5px;">PREVIEW</div>
                 <iframe id="right-preview-frame"></iframe>
             </div>
         </div>
     </div>
 
-    <div class="resizer" id="resizer-h"></div>
+    <div class="resizer-h" id="resizer-h"></div>
 
     <div id="bottom-panel">
         <div id="panel-tabs">
             <div class="panel-tab active" id="tab-term" onclick="switchPanel('terminal')">TERMINAL</div>
-            <div class="panel-tab" id="tab-prev" onclick="switchPanel('preview')">PREVIEW (Bottom)</div>
+            <div class="panel-tab" id="tab-prev" onclick="switchPanel('preview')">PREVIEW</div>
             <div class="panel-tab" onclick="clearOutput()" style="margin-left:auto;">CLEAR</div>
         </div>
         
         <div id="terminal-area" class="show">
             <div id="output" onclick="document.getElementById('shell-input').focus()">
                 <div id="term-log"></div>
-                <div class="shell-line">
-                    <span class="shell-prompt">user@pypanel:~$</span>
-                    <input type="text" id="shell-input" autocomplete="off">
+                <div style="display:flex; margin-top:5px;">
+                    <span style="color:#2ea043; margin-right:8px; font-weight:bold;">$</span>
+                    <input type="text" id="shell-input" style="flex:1; background:transparent; border:none; color:#fff; outline:none;" autocomplete="off">
                 </div>
             </div>
         </div>
@@ -225,6 +197,14 @@
             <iframe id="bottom-preview-frame"></iframe>
         </div>
     </div>
+</div>
+
+<!-- Status Bar -->
+<div id="status-bar">
+    <div class="status-item"><span class="status-icon">⚡</span> CPU: <span id="cpu-val">0%</span></div>
+    <div class="status-item"><span class="status-icon">💾</span> Mem: <span id="mem-val">--</span></div>
+    <div class="status-item"><span class="status-icon">🐍</span> Py: <span id="py-status-text">Init</span></div>
+    <div class="status-item" style="margin-left:auto;"><span class="status-icon">📄</span> <span id="file-count">0</span> Files</div>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.js"></script>
