@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>PyPanel IDE</title>
+    <title>PyPanel Ultra (IntelliSense)</title>
     <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;600&display=swap" rel="stylesheet">
     <style>
         :root {
@@ -17,6 +17,17 @@
         * { box-sizing: border-box; }
         body { margin: 0; display: flex; flex-direction: column; height: 100vh; background: var(--bg-dark); color: var(--text-main); font-family: 'Inter', sans-serif; overflow: hidden; }
 
+        /* Loading Screen */
+        #loading-screen {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #1e1e1e; z-index: 9999;
+            display: flex; flex-direction: column; justify-content: center; align-items: center; transition: opacity 0.5s;
+        }
+        .spinner {
+            width: 40px; height: 40px; border: 4px solid #333; border-top: 4px solid #007acc; border-radius: 50%;
+            animation: spin 1s linear infinite; margin-bottom: 20px;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+
         /* Toolbar */
         #toolbar { 
             height: 45px; background: #333; display: flex; align-items: center; padding: 0 10px; border-bottom: 1px solid #111; 
@@ -28,7 +39,8 @@
         button { 
             cursor: pointer; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; font-weight: 600; color: white; transition: 0.2s; display: flex; align-items: center; gap: 5px;
         }
-        #runBtn { background: #2ea043; } #runBtn:hover { background: #3fb950; }
+        button:disabled { opacity: 0.6; cursor: not-allowed; }
+        #runBtn { background: #2ea043; } #runBtn:hover:not(:disabled) { background: #3fb950; }
         #stopBtn { background: #da3633; display: none; } #stopBtn:hover { background: #f85149; }
         #popBtn { background: #007acc; } #popBtn:hover { background: #0062a3; }
         .icon-btn { background: transparent; color: #aaa; padding: 6px; font-size: 18px; } .icon-btn:hover { color: #fff; background: #444; }
@@ -40,93 +52,70 @@
         #sidebar { 
             width: 240px; background: var(--bg-sidebar); border-right: 1px solid var(--border); display: flex; flex-direction: column;
             transition: transform 0.2s ease; flex-shrink: 0; 
-            user-select: none; -webkit-user-select: none; /* スマホでのテキスト選択暴発を防ぐ */
+            user-select: none; -webkit-user-select: none;
         }
         .sidebar-header { padding: 10px; font-size: 11px; font-weight: bold; color: #888; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; }
         #file-tree { flex: 1; overflow-y: auto; padding: 5px 0; }
         
-        /* Tree Items */
-        .tree-node {
-            color: #ccc; font-size: 13px; white-space: nowrap; display: flex; flex-direction: column;
-        }
-        .tree-content {
-            display: flex; align-items: center; padding: 6px 10px; cursor: pointer;
-            border: 1px solid transparent; position: relative;
-        }
+        .tree-node { color: #ccc; font-size: 13px; white-space: nowrap; display: flex; flex-direction: column; }
+        .tree-content { display: flex; align-items: center; padding: 6px 10px; cursor: pointer; border: 1px solid transparent; position: relative; }
         .tree-content:hover { background: #2a2d2e; }
         .tree-content.active { background: #37373d; color: white; border-left: 2px solid var(--accent); }
-        
-        .tree-name { flex: 1; overflow: hidden; text-overflow: ellipsis; pointer-events: none; /* テキスト選択防止のダメ押し */ }
-        
-        /* Menu Button in Tree */
-        .tree-menu-btn {
-            padding: 2px 8px; color: #888; border-radius: 3px; cursor: pointer; font-weight: bold; font-size: 14px;
-        }
+        .tree-name { flex: 1; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+        .tree-menu-btn { padding: 2px 8px; color: #888; border-radius: 3px; cursor: pointer; font-weight: bold; font-size: 14px; }
         .tree-menu-btn:hover { background: #444; color: #fff; }
-
         .tree-children { padding-left: 12px; display: none; border-left: 1px solid #444; margin-left: 10px; }
         .tree-children.open { display: block; }
-        
         .arrow { font-size: 10px; margin-right: 5px; color: #999; display: inline-block; width: 10px; }
         .arrow.down { transform: rotate(90deg); }
         .file-spacer { width: 15px; display: inline-block; }
 
-        /* Editor Pane */
+        /* Editor */
         #editor-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; height: 100%; position: relative; }
         #tabs { height: 35px; background: #2d2d2d; display: flex; align-items: center; overflow-x: auto; flex-shrink: 0; border-bottom: 1px solid #111; }
-        .tab { 
-            padding: 0 15px; height: 100%; display: flex; align-items: center; font-size: 13px; color: #888; background: #2d2d2d; cursor: pointer; border-right: 1px solid #1e1e1e; min-width: 80px; justify-content: center; white-space: nowrap;
-        }
+        .tab { padding: 0 15px; height: 100%; display: flex; align-items: center; font-size: 13px; color: #888; background: #2d2d2d; cursor: pointer; border-right: 1px solid #1e1e1e; min-width: 80px; justify-content: center; white-space: nowrap; }
         .tab.active { background: #1e1e1e; color: #fff; border-top: 2px solid var(--accent); }
-        
         #editor-container { flex: 1; overflow: hidden; }
 
-        /* Resizer (Touch Friendly) */
+        /* Resizer */
         .resizer { 
-            height: 20px; /* スマホで押しやすく少し太く */
-            background: #252526; cursor: row-resize; border-top: 1px solid #333; border-bottom: 1px solid #333;
+            height: 20px; background: #252526; cursor: row-resize; border-top: 1px solid #333; border-bottom: 1px solid #333;
             z-index: 20; flex-shrink: 0; display: flex; justify-content: center; align-items: center; touch-action: none;
         }
         .resizer::after { content: "••••"; color: #666; font-size: 12px; letter-spacing: 3px; font-weight: bold; }
 
-        /* Bottom Panel */
-        #bottom-panel { 
-            height: 250px; background: var(--bg-panel); display: flex; flex-direction: column; min-height: 0; flex-shrink: 0; 
-        }
+        /* Panels */
+        #bottom-panel { height: 250px; background: #1e1e1e; display: flex; flex-direction: column; min-height: 0; flex-shrink: 0; }
         #panel-tabs { height: 35px; background: #222; display: flex; border-bottom: 1px solid #333; }
         .panel-tab { padding: 0 15px; font-size: 12px; color: #888; display: flex; align-items: center; cursor: pointer; border-right: 1px solid #333; }
         .panel-tab.active { background: #1e1e1e; color: white; font-weight: bold; border-top: 2px solid var(--accent); }
-        
+        #output { flex: 1; padding: 10px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.5; color: #d4d4d4; user-select: text; -webkit-user-select: text; cursor: text; }
+        #preview-frame { width: 100%; height: 100%; border: none; background: white; }
         #terminal-area, #preview-area { flex: 1; display: none; overflow: hidden; position: relative; }
         #terminal-area.show, #preview-area.show { display: flex; flex-direction: column; }
-
-        #output { 
-            flex: 1; padding: 10px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.5; color: #d4d4d4; 
-            user-select: text; -webkit-user-select: text; cursor: text; /* ここはコピー可能にする */
-        }
-        #preview-frame { width: 100%; height: 100%; border: none; background: white; }
-
+        
         .shell-line { display: flex; margin-top: 5px; }
         .shell-prompt { color: #2ea043; margin-right: 8px; font-weight: bold; }
         #shell-input { flex: 1; background: transparent; border: none; color: #fff; font-family: inherit; font-size: inherit; outline: none; }
 
-        /* Popups & Context Menus */
-        #popup-overlay {
-            position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.8); z-index: 3000; display: none; justify-content: center; align-items: center;
+        /* Toast Notification */
+        #toast {
+            position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+            background: #333; color: white; padding: 8px 20px; border-radius: 20px;
+            font-size: 13px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 5000;
+            opacity: 0; transition: opacity 0.3s, top 0.3s; pointer-events: none; border: 1px solid #444;
         }
+        #toast.show { opacity: 1; top: 60px; }
+
+        /* Popup & Context */
+        #popup-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 3000; display: none; justify-content: center; align-items: center; }
         .popup-window { background: #fff; width: 95%; height: 90%; display: flex; flex-direction: column; border-radius: 8px; overflow: hidden; }
         .popup-header { background: #333; padding: 10px; display: flex; justify-content: space-between; color: white; }
         .popup-close { background: #f44336; border: none; color: white; width: 30px; height: 30px; border-radius: 4px; font-size: 18px; }
         #popup-content { flex: 1; border: none; background: #fff; }
 
-        /* Custom Context Menu */
-        #context-menu {
-            position: absolute; background: #252526; border: 1px solid #444; display: none; z-index: 4000; min-width: 160px;
-            box-shadow: 0 4px 10px rgba(0,0,0,0.5); border-radius: 4px; overflow: hidden;
-        }
+        #context-menu { position: absolute; background: #252526; border: 1px solid #444; display: none; z-index: 4000; min-width: 160px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); border-radius: 4px; overflow: hidden; }
         .ctx-item { padding: 12px 15px; font-size: 14px; cursor: pointer; color: #eee; border-bottom: 1px solid #333; }
-        .ctx-item:last-child { border-bottom: none; }
         .ctx-item:active, .ctx-item:hover { background: #007acc; }
 
         @media (max-width: 768px) {
@@ -141,13 +130,19 @@
 </head>
 <body>
 
+<div id="loading-screen">
+    <div class="spinner"></div>
+    <div style="color:#ccc; font-size:14px;">Editor Loading...</div>
+</div>
+
+<div id="toast">Saved</div>
+
 <div id="toolbar">
     <div class="tool-group">
         <button class="icon-btn" onclick="toggleSidebar()">📂</button>
         <h1>🐍 <span>PyPanel</span></h1>
     </div>
     <div class="tool-group">
-        <span id="status" style="font-size: 11px; color: #666; display:none;">Ready</span>
         <button id="popBtn" onclick="openPopup()">❐ Pop</button>
         <button id="runBtn" onclick="runProject()">▶ Run</button>
         <button id="stopBtn" onclick="stopCode()">⏹ Stop</button>
@@ -197,7 +192,6 @@
     </div>
 </div>
 
-<!-- 操作メニュー -->
 <div id="context-menu">
     <div class="ctx-item" onclick="ctxRun()">▶ 実行 (Run)</div>
     <div class="ctx-item" onclick="ctxRename()">✏️ 名前変更 (Rename)</div>
