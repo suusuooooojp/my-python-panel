@@ -31,7 +31,7 @@ function updateMonitor() {
 }
 requestAnimationFrame(updateMonitor);
 
-// --- Zoom ---
+// --- Zoom Logic ---
 let currentZoom = 1.0;
 function changeZoom(delta) {
     currentZoom += delta;
@@ -44,7 +44,7 @@ function changeZoom(delta) {
     if(editor) editor.layout();
 }
 
-// --- Layout ---
+// --- Layout Logic ---
 let isRightPreview = false;
 function toggleLayout() {
     isRightPreview = !isRightPreview;
@@ -56,7 +56,7 @@ function toggleLayout() {
         rightPane.classList.add('show');
         resizeV.style.display = 'flex';
         bottomPrevTab.style.display = 'none';
-        switchPanel('terminal');
+        switchPanel('terminal'); 
     } else {
         rightPane.classList.remove('show');
         resizeV.style.display = 'none';
@@ -76,7 +76,7 @@ function toggleSidebar() {
     setTimeout(() => editor.layout(), 250);
 }
 
-// --- Monaco ---
+// --- Monaco Setup ---
 require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' }});
 window.MonacoEnvironment = { getWorkerUrl: () => `data:text/javascript;charset=utf-8,${encodeURIComponent(`self.MonacoEnvironment = { baseUrl: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/' }; importScripts('https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/base/worker/workerMain.js');`)}` };
 
@@ -219,7 +219,6 @@ function openFile(p) {
     renderTree(); updateTabs();
 }
 
-// --- Menu ---
 const ctxMenu = document.getElementById('context-menu');
 let ctxTarget = null, ctxIsFile = true;
 function showCtx(e, p, f) {
@@ -293,7 +292,6 @@ function getLang(p) { return p.endsWith('.py')?'python':(p.endsWith('.js')?'java
 function getIcon(p) { return p.endsWith('.py')?'🐍':(p.endsWith('.js')?'📜':(p.endsWith('.html')?'🌐':(p.endsWith('.css')?'🎨':'📄'))); }
 function updateTabs() { document.getElementById('tabs').innerHTML = `<div class="tab active">${currentPath}</div>`; }
 
-// --- Runner ---
 let pyWorker = null;
 function initPyWorker() {
     const status = document.getElementById('py-status-text');
@@ -352,7 +350,6 @@ function bundleFiles(htmlPath) {
     return html;
 }
 
-// --- Utils ---
 const termLog = document.getElementById('term-log');
 const shellIn = document.getElementById('shell-input');
 shellIn.addEventListener('keydown', e => {
@@ -374,7 +371,7 @@ function switchPanel(p) {
     document.getElementById('bottom-preview-area').className = p === 'preview' ? 'show' : '';
 }
 
-// --- Resizers (Corrected) ---
+// --- Resizers (Clamped) ---
 const rH = document.getElementById('resizer-h');
 const bPanel = document.getElementById('bottom-panel');
 rH.addEventListener('mousedown', initDragH);
@@ -389,9 +386,9 @@ function initDragH(e) {
 }
 function doDragH(e) {
     const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    const h = window.innerHeight - clientY - 24; // Status bar offset
-    // Min height limit to avoid layout break
-    if(h > 30 && h < window.innerHeight - 50) { 
+    const h = window.innerHeight - clientY - 24; 
+    // Fix: Allow minimal height (30px) but prevent 0px (gray void)
+    if(h >= 30 && h < window.innerHeight - 50) { 
         bPanel.style.height = h + 'px'; 
         if(editor) editor.layout(); 
     }
@@ -402,15 +399,6 @@ function stopDragH() {
     document.removeEventListener('mouseup', stopDragH);
     document.removeEventListener('touchend', stopDragH);
 }
-
-// Auto resize on window change
-window.addEventListener('resize', () => {
-    if(editor) editor.layout();
-    // Prevent panel from being too large on window shrink
-    if(bPanel.offsetHeight > window.innerHeight - 100) {
-        bPanel.style.height = '200px';
-    }
-});
 
 const rV = document.getElementById('resizer-v');
 const rPane = document.getElementById('right-preview-pane');
