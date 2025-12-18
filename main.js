@@ -1,459 +1,215 @@
-// --- Service Worker ---
-if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});
-
-// --- Monaco Setup ---
-require.config({ paths: { 'vs': 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs' }});
-window.MonacoEnvironment = {
-    getWorkerUrl: () => `data:text/javascript;charset=utf-8,${encodeURIComponent(`
-        self.MonacoEnvironment = { baseUrl: 'https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/' };
-        importScripts('https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/base/worker/workerMain.js');`
-    )}`
-};
-
-// --- State ---
-let editor;
-let files = {};
-let currentPath = "";
-let expandedFolders = new Set();
-let zenkakuDecorations = [];
-
-// Sample Data
-const DEFAULT_FILES = {
-    'main.py': { content: `import sys\nimport utils.helper as h\n\nprint(f"🐍 Python {sys.version.split()[0]}")\nprint(h.msg())`, mode: 'python' },
-    'utils/helper.py': { content: `def msg():\n    return "Nested Import Works!"`, mode: 'python' },
-    'index.html': { content: `<!DOCTYPE html>\n<html>\n<head>\n  <link rel="stylesheet" href="css/style.css">\n</head>\n<body>\n  <div class="box">\n    <h1>PyPanel IDE</h1>\n    <p>Mobile Friendly File Manager</p>\n    <button onclick="test()">Click Me</button>\n  </div>\n  <script src="js/main.js"></script>\n</body>\n</html>`, mode: 'html' },
-    'css/style.css': { content: `body { background: #222; color: #fff; font-family: sans-serif; text-align: center; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; }\n.box { border: 1px solid #444; padding: 20px; border-radius: 8px; background: #2a2a2a; }`, mode: 'css' },
-    'js/main.js': { content: `function test() { alert("JS Works!"); }`, mode: 'javascript' }
-};
-
-// --- Init ---
-try {
-    files = JSON.parse(localStorage.getItem('pypanel_files')) || DEFAULT_FILES;
-} catch(e) { files = DEFAULT_FILES; }
-
-require(['vs/editor/editor.main'], function() {
-    currentPath = Object.keys(files)[0] || "main.py";
-    
-    editor = monaco.editor.create(document.getElementById('editor-container'), {
-        value: files[currentPath] ? files[currentPath].content : "",
-        language: getLang(currentPath),
-        theme: 'vs-dark',
-        fontSize: 14,
-        automaticLayout: true,
-        minimap: { enabled: true, scale: 0.75 },
-        fontFamily: "'JetBrains Mono', monospace",
-        padding: { top: 10 }
-    });
-
-    editor.onDidChangeModelContent(() => {
-        if(files[currentPath]) {
-            files[currentPath].content = editor.getValue();
-            saveFiles();
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>PyPanel Ultra (IntelliSense)</title>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;600&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-dark: #1e1e1e;
+            --bg-sidebar: #252526;
+            --bg-panel: #1e1e1e;
+            --accent: #007acc;
+            --text-main: #cccccc;
+            --border: #333333;
         }
-        updateZenkaku();
-    });
+        * { box-sizing: border-box; }
+        body { margin: 0; display: flex; flex-direction: column; height: 100vh; background: var(--bg-dark); color: var(--text-main); font-family: 'Inter', sans-serif; overflow: hidden; }
 
-    editor.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter, runProject);
-    
-    // フォルダ展開初期化
-    Object.keys(files).forEach(p => {
-        const parts = p.split('/');
-        if(parts.length > 1) expandedFolders.add(parts[0]);
-    });
-    
-    renderTree();
-    updateTabs();
-    updateZenkaku();
-});
-
-function saveFiles() {
-    localStorage.setItem('pypanel_files', JSON.stringify(files));
-}
-
-// --- Zenkaku Detection ---
-function updateZenkaku() {
-    if(!editor) return;
-    const model = editor.getModel();
-    const matches = model.findMatches('　', false, false, false, null, true);
-    const newDecorations = matches.map(match => ({
-        range: match.range,
-        options: { isWholeLine: false, className: 'zenkaku-bg', inlineClassName: 'zenkaku-bg' }
-    }));
-    zenkakuDecorations = model.deltaDecorations(zenkakuDecorations, newDecorations);
-}
-const style = document.createElement('style');
-style.innerHTML = `.zenkaku-bg { background: rgba(255, 165, 0, 0.3); border: 1px solid orange; }`;
-document.head.appendChild(style);
-
-// --- File System UI ---
-
-function renderTree() {
-    const tree = document.getElementById('file-tree');
-    tree.innerHTML = "";
-    
-    // 構造化
-    const structure = {};
-    Object.keys(files).sort().forEach(path => {
-        const parts = path.split('/');
-        let current = structure;
-        parts.forEach((part, i) => {
-            if (!current[part]) {
-                current[part] = (i === parts.length - 1) ? { __file: true, path: path } : {};
-            }
-            current = current[part];
-        });
-    });
-
-    // DOM生成
-    function buildDom(obj, container, fullPathPrefix = "") {
-        Object.keys(obj).sort((a,b) => {
-            const aIsFile = obj[a].__file;
-            const bIsFile = obj[b].__file;
-            if (aIsFile === bIsFile) return a.localeCompare(b);
-            return aIsFile ? 1 : -1;
-        }).forEach(key => {
-            if (key === '__file' || key === 'path') return;
-            
-            const item = obj[key];
-            const isFile = item.__file;
-            const currentFullPath = fullPathPrefix ? `${fullPathPrefix}/${key}` : key;
-            
-            const node = document.createElement('div');
-            node.className = 'tree-node';
-            
-            // 行コンテナ
-            const content = document.createElement('div');
-            content.className = `tree-content ${isFile && item.path === currentPath ? 'active' : ''}`;
-            
-            // アイコン
-            let iconHtml = '';
-            if (isFile) {
-                iconHtml = `<span class="file-spacer"></span>${getIcon(key)}`;
-            } else {
-                const isOpen = expandedFolders.has(currentFullPath);
-                iconHtml = `<span class="arrow ${isOpen ? 'down' : ''}">▶</span>📁`;
-            }
-            
-            // メニューボタン(⋮)
-            const menuBtn = document.createElement('span');
-            menuBtn.className = 'tree-menu-btn';
-            menuBtn.innerHTML = '⋮';
-            menuBtn.onclick = (e) => {
-                e.stopPropagation();
-                showCtx(e, currentFullPath, isFile);
-            };
-
-            // 名前表示
-            const nameSpan = document.createElement('span');
-            nameSpan.className = 'tree-name';
-            nameSpan.style.marginLeft = '5px';
-            nameSpan.innerText = key;
-
-            content.innerHTML = iconHtml;
-            content.appendChild(nameSpan);
-            content.appendChild(menuBtn);
-            
-            content.onclick = (e) => {
-                e.stopPropagation();
-                if (isFile) {
-                    openFile(item.path);
-                } else {
-                    toggleFolder(currentFullPath);
-                }
-            };
-            
-            // 長押し対応 (右クリックメニュー)
-            content.oncontextmenu = (e) => showCtx(e, currentFullPath, isFile);
-
-            node.appendChild(content);
-
-            if (!isFile) {
-                const childrenDiv = document.createElement('div');
-                childrenDiv.className = `tree-children ${expandedFolders.has(currentFullPath) ? 'open' : ''}`;
-                buildDom(item, childrenDiv, currentFullPath);
-                node.appendChild(childrenDiv);
-            }
-
-            container.appendChild(node);
-        });
-    }
-
-    buildDom(structure, tree);
-}
-
-function toggleFolder(path) {
-    if(expandedFolders.has(path)) expandedFolders.delete(path);
-    else expandedFolders.add(path);
-    renderTree();
-}
-
-function openFile(path) {
-    currentPath = path;
-    const model = editor.getModel();
-    monaco.editor.setModelLanguage(model, getLang(path));
-    editor.setValue(files[path].content);
-    renderTree();
-    updateTabs();
-    updateZenkaku();
-}
-
-// --- Menu Logic (Context Menu) ---
-const ctxMenu = document.getElementById('context-menu');
-let ctxTarget = null;
-let ctxIsFile = true;
-
-function showCtx(e, path, isFile) {
-    e.preventDefault();
-    e.stopPropagation();
-    ctxTarget = path;
-    ctxIsFile = isFile;
-    
-    // メニュー位置調整 (画面外にはみ出さないように)
-    let x = e.pageX;
-    let y = e.pageY;
-    
-    ctxMenu.style.display = 'block';
-    // 一度表示してサイズ取得
-    const rect = ctxMenu.getBoundingClientRect();
-    if(x + rect.width > window.innerWidth) x = window.innerWidth - rect.width - 10;
-    if(y + rect.height > window.innerHeight) y = window.innerHeight - rect.height - 10;
-    
-    ctxMenu.style.left = x + 'px';
-    ctxMenu.style.top = y + 'px';
-}
-
-// 画面のどこかをクリックしたらメニューを閉じる
-document.addEventListener('click', () => ctxMenu.style.display = 'none');
-// エディタ内クリックでも閉じる
-if(editor) editor.onMouseDown(() => ctxMenu.style.display = 'none');
-
-// 削除
-function ctxDelete() {
-    if(ctxTarget && confirm(`削除しますか？\n${ctxTarget}`)) {
-        if(ctxIsFile) {
-            delete files[ctxTarget];
-        } else {
-            Object.keys(files).forEach(k => {
-                if(k.startsWith(ctxTarget + '/')) delete files[k];
-            });
+        /* Loading Screen */
+        #loading-screen {
+            position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #1e1e1e; z-index: 9999;
+            display: flex; flex-direction: column; justify-content: center; align-items: center; transition: opacity 0.5s;
         }
-        // 開いているファイルが消えた場合の処理
-        if(!files[currentPath]) currentPath = Object.keys(files)[0] || "";
-        if(currentPath) openFile(currentPath);
-        else editor.setValue("");
-        saveFiles();
-        renderTree();
-    }
-}
-
-// 名前変更
-function ctxRename() {
-    if(!ctxTarget) return;
-    const newName = prompt("新しい名前:", ctxTarget.split('/').pop());
-    if(!newName) return;
-    
-    const parentDir = ctxTarget.substring(0, ctxTarget.lastIndexOf('/'));
-    const newPath = parentDir ? `${parentDir}/${newName}` : newName;
-    
-    if(newPath === ctxTarget) return;
-    if(files[newPath]) { alert("同名のファイルが存在します"); return; }
-    
-    moveEntry(ctxTarget, newPath);
-    renderTree();
-}
-
-// 移動 (簡易フォルダ選択)
-function ctxMove() {
-    if(!ctxTarget) return;
-    // フォルダ一覧を取得
-    const folders = new Set(['(root)']);
-    Object.keys(files).forEach(k => {
-        const parts = k.split('/');
-        if(parts.length > 1) {
-            // フォルダパスを抽出
-            let p = "";
-            for(let i=0; i<parts.length-1; i++){
-                p += (p?"/":"") + parts[i];
-                folders.add(p);
-            }
+        .spinner {
+            width: 40px; height: 40px; border: 4px solid #333; border-top: 4px solid #007acc; border-radius: 50%;
+            animation: spin 1s linear infinite; margin-bottom: 20px;
         }
-    });
-    
-    const dest = prompt(`移動先のフォルダを入力してください:\n候補: ${Array.from(folders).join(', ')}`, "");
-    if(dest === null) return;
-    
-    let targetDir = dest.trim();
-    if(targetDir === '(root)' || targetDir === '') targetDir = '';
-    
-    const fileName = ctxTarget.split('/').pop();
-    const newPath = targetDir ? `${targetDir}/${fileName}` : fileName;
-    
-    if(newPath === ctxTarget) return;
-    
-    moveEntry(ctxTarget, newPath);
-    renderTree();
-}
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
 
-function moveEntry(oldP, newP) {
-    if(files[oldP]) {
-        files[newP] = files[oldP];
-        delete files[oldP];
-        if(currentPath === oldP) { currentPath = newP; updateTabs(); }
-    } else {
-        // フォルダ移動 (中身をすべて移動)
-        Object.keys(files).forEach(k => {
-            if(k.startsWith(oldP + '/')) {
-                const suffix = k.substring(oldP.length);
-                const dest = newP + suffix;
-                files[dest] = files[k];
-                delete files[k];
-                if(currentPath === k) { currentPath = dest; updateTabs(); }
-            }
-        });
-    }
-    saveFiles();
-}
+        /* Toolbar */
+        #toolbar { 
+            height: 45px; background: #333; display: flex; align-items: center; padding: 0 10px; border-bottom: 1px solid #111; 
+            justify-content: space-between; flex-shrink: 0; z-index: 100;
+        }
+        h1 { margin: 0; font-size: 14px; color: #fff; font-weight: 600; display: flex; align-items: center; gap: 8px; white-space: nowrap; }
+        .tool-group { display: flex; gap: 8px; align-items: center; }
+        
+        button { 
+            cursor: pointer; border: none; padding: 6px 12px; border-radius: 4px; font-size: 12px; font-weight: 600; color: white; transition: 0.2s; display: flex; align-items: center; gap: 5px;
+        }
+        button:disabled { opacity: 0.6; cursor: not-allowed; }
+        #runBtn { background: #2ea043; } #runBtn:hover:not(:disabled) { background: #3fb950; }
+        #stopBtn { background: #da3633; display: none; } #stopBtn:hover { background: #f85149; }
+        #popBtn { background: #007acc; } #popBtn:hover { background: #0062a3; }
+        .icon-btn { background: transparent; color: #aaa; padding: 6px; font-size: 18px; } .icon-btn:hover { color: #fff; background: #444; }
 
-function ctxRun() {
-    if(ctxIsFile) {
-        openFile(ctxTarget);
-        runProject();
-    }
-}
+        /* Workspace */
+        #workspace { flex: 1; display: flex; overflow: hidden; position: relative; }
 
-// --- Creation ---
-function createNewFile() {
-    let path = prompt("ファイル名 (例: js/app.js):", "");
-    if(!path) return;
-    if(files[path]) { alert("既に存在します"); return; }
-    files[path] = { content: "", mode: getLang(path) };
-    // 親フォルダを展開
-    const parts = path.split('/');
-    if(parts.length > 1) expandedFolders.add(parts[0]);
-    saveFiles();
-    renderTree();
-    openFile(path);
-}
-function createNewFolder() {
-    let path = prompt("フォルダ名:", "folder");
-    if(!path) return;
-    files[`${path}/.keep`] = { content: "", mode: "plaintext" };
-    expandedFolders.add(path);
-    saveFiles();
-    renderTree();
-}
+        /* Sidebar */
+        #sidebar { 
+            width: 240px; background: var(--bg-sidebar); border-right: 1px solid var(--border); display: flex; flex-direction: column;
+            transition: transform 0.2s ease; flex-shrink: 0; 
+            user-select: none; -webkit-user-select: none;
+        }
+        .sidebar-header { padding: 10px; font-size: 11px; font-weight: bold; color: #888; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #333; }
+        #file-tree { flex: 1; overflow-y: auto; padding: 5px 0; }
+        
+        .tree-node { color: #ccc; font-size: 13px; white-space: nowrap; display: flex; flex-direction: column; }
+        .tree-content { display: flex; align-items: center; padding: 6px 10px; cursor: pointer; border: 1px solid transparent; position: relative; }
+        .tree-content:hover { background: #2a2d2e; }
+        .tree-content.active { background: #37373d; color: white; border-left: 2px solid var(--accent); }
+        .tree-name { flex: 1; overflow: hidden; text-overflow: ellipsis; pointer-events: none; }
+        .tree-menu-btn { padding: 2px 8px; color: #888; border-radius: 3px; cursor: pointer; font-weight: bold; font-size: 14px; }
+        .tree-menu-btn:hover { background: #444; color: #fff; }
+        .tree-children { padding-left: 12px; display: none; border-left: 1px solid #444; margin-left: 10px; }
+        .tree-children.open { display: block; }
+        .arrow { font-size: 10px; margin-right: 5px; color: #999; display: inline-block; width: 10px; }
+        .arrow.down { transform: rotate(90deg); }
+        .file-spacer { width: 15px; display: inline-block; }
 
-// --- Utils ---
-function getLang(p) {
-    if(p.endsWith('.py')) return 'python';
-    if(p.endsWith('.js')) return 'javascript';
-    if(p.endsWith('.html')) return 'html';
-    if(p.endsWith('.css')) return 'css';
-    if(p.endsWith('.rb')) return 'ruby';
-    return 'plaintext';
-}
-function getIcon(p) {
-    if(p.endsWith('.py')) return '🐍';
-    if(p.endsWith('.js')) return '📜';
-    if(p.endsWith('.html')) return '🌐';
-    if(p.endsWith('.css')) return '🎨';
-    return '📄';
-}
-function updateTabs() {
-    document.getElementById('tabs').innerHTML = `<div class="tab active">${currentPath}</div>`;
-}
+        /* Editor */
+        #editor-pane { flex: 1; display: flex; flex-direction: column; min-width: 0; height: 100%; position: relative; }
+        #tabs { height: 35px; background: #2d2d2d; display: flex; align-items: center; overflow-x: auto; flex-shrink: 0; border-bottom: 1px solid #111; }
+        .tab { padding: 0 15px; height: 100%; display: flex; align-items: center; font-size: 13px; color: #888; background: #2d2d2d; cursor: pointer; border-right: 1px solid #1e1e1e; min-width: 80px; justify-content: center; white-space: nowrap; }
+        .tab.active { background: #1e1e1e; color: #fff; border-top: 2px solid var(--accent); }
+        #editor-container { flex: 1; overflow: hidden; }
 
-// --- Runner ---
-async function runProject() {
-    if (currentPath.endsWith('.py')) {
-        switchPanel('terminal');
-        runPython();
-        return;
-    }
-    let entry = files['index.html'] ? 'index.html' : (currentPath.endsWith('.html') ? currentPath : null);
-    if (entry) {
-        switchPanel('preview');
-        log(`Bundling Web Project...`, '#4ec9b0');
-        const html = bundleFiles(entry);
-        document.getElementById('preview-frame').srcdoc = html;
-        return;
-    }
-    log("実行可能なファイルではありません (index.html または .py が必要)", 'orange');
-}
+        /* Resizer */
+        .resizer { 
+            height: 20px; background: #252526; cursor: row-resize; border-top: 1px solid #333; border-bottom: 1px solid #333;
+            z-index: 20; flex-shrink: 0; display: flex; justify-content: center; align-items: center; touch-action: none;
+        }
+        .resizer::after { content: "••••"; color: #666; font-size: 12px; letter-spacing: 3px; font-weight: bold; }
 
-function bundleFiles(htmlPath) {
-    let html = files[htmlPath].content;
-    html = html.replace(/<link\s+[^>]*href=["']([^"']+)["'][^>]*>/g, (m, h) => files[h] ? `<style>/* ${h} */\n${files[h].content}</style>` : m);
-    html = html.replace(/<script\s+[^>]*src=["']([^"']+)["'][^>]*><\/script>/g, (m, s) => files[s] ? `<script>/* ${s} */\n${files[s].content}</script>` : m);
-    return html;
-}
+        /* Panels */
+        #bottom-panel { height: 250px; background: #1e1e1e; display: flex; flex-direction: column; min-height: 0; flex-shrink: 0; }
+        #panel-tabs { height: 35px; background: #222; display: flex; border-bottom: 1px solid #333; }
+        .panel-tab { padding: 0 15px; font-size: 12px; color: #888; display: flex; align-items: center; cursor: pointer; border-right: 1px solid #333; }
+        .panel-tab.active { background: #1e1e1e; color: white; font-weight: bold; border-top: 2px solid var(--accent); }
+        #output { flex: 1; padding: 10px; overflow-y: auto; font-family: 'JetBrains Mono', monospace; font-size: 13px; line-height: 1.5; color: #d4d4d4; user-select: text; -webkit-user-select: text; cursor: text; }
+        #preview-frame { width: 100%; height: 100%; border: none; background: white; }
+        #terminal-area, #preview-area { flex: 1; display: none; overflow: hidden; position: relative; }
+        #terminal-area.show, #preview-area.show { display: flex; flex-direction: column; }
+        
+        .shell-line { display: flex; margin-top: 5px; }
+        .shell-prompt { color: #2ea043; margin-right: 8px; font-weight: bold; }
+        #shell-input { flex: 1; background: transparent; border: none; color: #fff; font-family: inherit; font-size: inherit; outline: none; }
 
-let pyWorker = null;
-function runPython() {
-    if(!pyWorker) {
-        log("Python Engine Loading...", 'gray');
-        pyWorker = new Worker('py-worker.js');
-        pyWorker.onmessage = e => {
-            const d = e.data;
-            if(d.type==='stdout') log(d.text);
-            if(d.type==='results') log("<= " + d.results, '#4ec9b0');
-            if(d.type==='error') log("Error: "+d.error, 'red');
-        };
-    }
-    const fileData = {};
-    for(let f in files) fileData[f] = files[f].content;
-    pyWorker.postMessage({ cmd: 'run', code: files[currentPath].content, files: fileData });
-}
+        /* Toast Notification */
+        #toast {
+            position: fixed; top: 20px; left: 50%; transform: translateX(-50%);
+            background: #333; color: white; padding: 8px 20px; border-radius: 20px;
+            font-size: 13px; box-shadow: 0 4px 12px rgba(0,0,0,0.3); z-index: 5000;
+            opacity: 0; transition: opacity 0.3s, top 0.3s; pointer-events: none; border: 1px solid #444;
+        }
+        #toast.show { opacity: 1; top: 60px; }
 
-// --- UI Logic ---
-const termLog = document.getElementById('term-log');
-const shellIn = document.getElementById('shell-input');
-shellIn.addEventListener('keydown', e => {
-    if(e.key === 'Enter') {
-        log(`$ ${shellIn.value}`, '#888');
-        shellIn.value = "";
-    }
-});
-function log(msg, color) {
-    const d = document.createElement('div');
-    d.textContent = msg;
-    if(color) d.style.color = color;
-    termLog.appendChild(d);
-    document.getElementById('output').scrollTop = 99999;
-}
-function clearOutput() { termLog.innerHTML = ""; }
-function resetAll() { if(confirm("全データを削除しますか？")) { localStorage.removeItem('pypanel_files'); location.reload(); } }
-function switchPanel(p) {
-    document.getElementById('tab-term').classList.remove('active');
-    document.getElementById('tab-prev').classList.remove('active');
-    document.getElementById('terminal-area').className = p === 'terminal' ? 'show' : '';
-    document.getElementById('preview-area').className = p === 'preview' ? 'show' : '';
-    if(p === 'terminal') document.getElementById('tab-term').classList.add('active');
-    else document.getElementById('tab-prev').classList.add('active');
-}
-function openPopup() {
-    document.getElementById('popup-overlay').style.display = 'flex';
-    if(files['index.html']) document.getElementById('popup-content').srcdoc = bundleFiles('index.html');
-}
-function closePopup() { document.getElementById('popup-overlay').style.display = 'none'; }
-function toggleSidebar() {
-    const sb = document.getElementById('sidebar');
-    sb.style.transform = sb.style.transform === 'translateX(-100%)' ? 'translateX(0)' : 'translateX(-100%)';
-    setTimeout(() => editor.layout(), 250);
-}
+        /* Popup & Context */
+        #popup-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 3000; display: none; justify-content: center; align-items: center; }
+        .popup-window { background: #fff; width: 95%; height: 90%; display: flex; flex-direction: column; border-radius: 8px; overflow: hidden; }
+        .popup-header { background: #333; padding: 10px; display: flex; justify-content: space-between; color: white; }
+        .popup-close { background: #f44336; border: none; color: white; width: 30px; height: 30px; border-radius: 4px; font-size: 18px; }
+        #popup-content { flex: 1; border: none; background: #fff; }
 
-// Resizer
-const resizer = document.getElementById('resizer');
-const bottomPanel = document.getElementById('bottom-panel');
-function handleDrag(e) {
-    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
-    const h = window.innerHeight - clientY;
-    if(h > 50 && h < window.innerHeight - 50) {
-        bottomPanel.style.height = h + 'px';
-        editor.layout();
-    }
-}
-resizer.addEventListener('mousedown', () => document.addEventListener('mousemove', handleDrag));
-document.addEventListener('mouseup', () => document.removeEventListener('mousemove', handleDrag));
-resizer.addEventListener('touchstart', () => document.addEventListener('touchmove', handleDrag, {passive:false}), {passive:false});
-document.addEventListener('touchend', () => document.removeEventListener('touchmove', handleDrag));
+        #context-menu { position: absolute; background: #252526; border: 1px solid #444; display: none; z-index: 4000; min-width: 160px; box-shadow: 0 4px 10px rgba(0,0,0,0.5); border-radius: 4px; overflow: hidden; }
+        .ctx-item { padding: 12px 15px; font-size: 14px; cursor: pointer; color: #eee; border-bottom: 1px solid #333; }
+        .ctx-item:active, .ctx-item:hover { background: #007acc; }
+
+        @media (max-width: 768px) {
+            #sidebar { position: absolute; height: 100%; z-index: 50; transform: translateX(-100%); width: 280px; box-shadow: 2px 0 10px rgba(0,0,0,0.5); }
+            #sidebar.open { transform: translateX(0); }
+            h1 span { display: none; }
+            #toolbar { padding: 0 5px; gap: 5px; }
+            button { padding: 8px 10px; font-size: 12px; }
+            #bottom-panel { height: 40vh; }
+        }
+    </style>
+</head>
+<body>
+
+<div id="loading-screen">
+    <div class="spinner"></div>
+    <div style="color:#ccc; font-size:14px;">Editor Loading...</div>
+</div>
+
+<div id="toast">Saved</div>
+
+<div id="toolbar">
+    <div class="tool-group">
+        <button class="icon-btn" onclick="toggleSidebar()">📂</button>
+        <h1>🐍 <span>PyPanel</span></h1>
+    </div>
+    <div class="tool-group">
+        <button id="popBtn" onclick="openPopup()">❐ Pop</button>
+        <button id="runBtn" onclick="runProject()">▶ Run</button>
+        <button id="stopBtn" onclick="stopCode()">⏹ Stop</button>
+        <button class="icon-btn" onclick="resetAll()" title="Reset" style="color: #f44336;">⚡</button>
+    </div>
+</div>
+
+<div id="workspace">
+    <div id="sidebar">
+        <div class="sidebar-header">
+            <span>EXPLORER</span>
+            <div style="display:flex; gap:10px;">
+                <span style="cursor:pointer; color:#fff;" onclick="createNewFolder()" title="フォルダ作成">📁</span>
+                <span style="cursor:pointer; color:#fff;" onclick="createNewFile()" title="ファイル作成">+</span>
+            </div>
+        </div>
+        <div id="file-tree"></div>
+    </div>
+
+    <div id="editor-pane">
+        <div id="tabs"></div>
+        <div id="editor-container"></div>
+        
+        <div class="resizer" id="resizer"></div>
+        
+        <div id="bottom-panel">
+            <div id="panel-tabs">
+                <div class="panel-tab active" id="tab-term" onclick="switchPanel('terminal')">TERMINAL</div>
+                <div class="panel-tab" id="tab-prev" onclick="switchPanel('preview')">WEB PREVIEW</div>
+                <div class="panel-tab" onclick="clearOutput()" style="margin-left:auto;">CLEAR</div>
+            </div>
+            
+            <div id="terminal-area" class="show">
+                <div id="output" onclick="document.getElementById('shell-input').focus()">
+                    <div id="term-log"></div>
+                    <div class="shell-line">
+                        <span class="shell-prompt">user@pypanel:~$</span>
+                        <input type="text" id="shell-input" autocomplete="off">
+                    </div>
+                </div>
+            </div>
+
+            <div id="preview-area">
+                <iframe id="preview-frame"></iframe>
+            </div>
+        </div>
+    </div>
+</div>
+
+<div id="context-menu">
+    <div class="ctx-item" onclick="ctxRun()">▶ 実行 (Run)</div>
+    <div class="ctx-item" onclick="ctxRename()">✏️ 名前変更 (Rename)</div>
+    <div class="ctx-item" onclick="ctxMove()">📂 移動... (Move)</div>
+    <div class="ctx-item" onclick="ctxDelete()" style="color:#ff6666;">🗑️ 削除 (Delete)</div>
+</div>
+
+<div id="popup-overlay">
+    <div class="popup-window">
+        <div class="popup-header">
+            <span>FULL PREVIEW</span>
+            <button class="popup-close" onclick="closePopup()">×</button>
+        </div>
+        <iframe id="popup-content"></iframe>
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/monaco-editor/0.45.0/min/vs/loader.js"></script>
+<script src="main.js"></script>
+</body>
+</html>
